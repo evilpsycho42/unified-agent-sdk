@@ -122,6 +122,13 @@ function createClaudeRuntime(
 ): UnifiedAgentRuntime<ClaudeSessionConfig, Partial<ClaudeSessionConfig>> {
   const home = init.home;
   const env = mergeIntoOptionalEnv(init.env);
+  // Improve robustness in non-interactive environments (see docs/claude.md).
+  if (
+    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC === undefined &&
+    !(init.env && Object.prototype.hasOwnProperty.call(init.env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"))
+  ) {
+    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+  }
   ensureNodeInPath(env);
   if (typeof home === "string") env.CLAUDE_CONFIG_DIR = home;
   const defaultOpts = init.defaultOpts;

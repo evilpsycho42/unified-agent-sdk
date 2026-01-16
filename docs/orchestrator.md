@@ -23,6 +23,7 @@ Then choose the concrete provider runtime at the composition root.
 `createRuntime()` is intentionally thin:
 - Provider auth/endpoint/home is configured via `home` + `env` (so CLI users can reuse `~/.codex` / `~/.claude`).
 - Provider-specific knobs (like Codex `modelReasoningEffort`) live on `openSession({ config: { provider: ... } })`.
+- For Claude, `createRuntime()` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` by default for more reliable non-interactive runs (override via `env`).
 
 ```ts
 import { createRuntime, type TurnInput } from "@unified-agent-sdk/runtime";

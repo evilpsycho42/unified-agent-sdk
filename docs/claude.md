@@ -164,4 +164,5 @@ Claude Code can also execute tools in an isolation sandbox. The `sandbox` option
 
 - In non-interactive environments, Claude Code can fail due to telemetry export errors.
   - Mitigation for CI: set `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and `DISABLE_ERROR_REPORTING=1`.
+  - If you use `@unified-agent-sdk/runtime` `createRuntime()`, this SDK sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` by default (override via `createRuntime({ env: { ... } })`).
 - Structured output may take multiple turns; prefer `maxTurns >= 3` for schema-based runs.
