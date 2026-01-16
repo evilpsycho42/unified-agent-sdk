@@ -184,7 +184,7 @@ test("Codex adapter wraps non-object outputSchema roots and unwraps structuredOu
   assert.deepEqual(done.structuredOutput, [1, 2, 3]);
 });
 
-test("Codex adapter does not emit file.changed when file_change status is failed", async () => {
+test("Codex adapter maps reasoning items to assistant.reasoning.message", async () => {
   const runtime = new CodexRuntime({
     defaults: { modelReasoningEffort: "low" },
     codex: new FakeCodex(async function* (thread) {
@@ -193,10 +193,9 @@ test("Codex adapter does not emit file.changed when file_change status is failed
       yield {
         type: "item.completed",
         item: {
-          id: "fc1",
-          type: "file_change",
-          status: "failed",
-          changes: [{ path: "README.md", kind: "update" }],
+          id: "r1",
+          type: "reasoning",
+          text: "I will inspect the repo and summarize issues.",
         },
       };
       yield { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } };
@@ -206,10 +205,11 @@ test("Codex adapter does not emit file.changed when file_change status is failed
   const session = await runtime.openSession({ sessionId: "s3", config: { workspace: { cwd: process.cwd() } } });
   const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
 
-  const emittedTypes = [];
-  for await (const ev of run.events) emittedTypes.push(ev.type);
-
-  assert.ok(!emittedTypes.includes("file.changed"));
+  const reasoningMessages = [];
+  for await (const ev of run.events) {
+    if (ev.type === "assistant.reasoning.message") reasoningMessages.push(ev.message.text);
+  }
+  assert.deepEqual(reasoningMessages, ["I will inspect the repo and summarize issues."]);
 });
 
 test("Codex adapter maps unified SessionConfig.permissions into ThreadOptions (2x2x2 + yolo)", async (t) => {

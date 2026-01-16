@@ -1,18 +1,18 @@
 {
-  "name": "@unified-agent-sdk/runtime-core",
+  "name": "uagent",
   "version": "0.2.0",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
   },
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+  "bin": {
+    "uagent": "./bin/uagent.js"
   },
-  "files": ["dist"],
+  "files": ["bin", "dist"],
+  "dependencies": {
+    "@unified-agent-sdk/runtime": "^0.2.0"
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false --noEmit"

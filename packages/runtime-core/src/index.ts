@@ -97,11 +97,13 @@ export interface RunRequest<TRunProvider = ProviderConfig> {
 }
 
 export interface Usage {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  costUsd?: number;
-  durationMs?: number;
+  input_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  duration_ms?: number;
   raw?: unknown;
 }
 
@@ -110,7 +112,6 @@ export interface RuntimeCapabilities {
   structuredOutput: boolean;
   cancel: boolean;
   sessionResume: boolean;
-  fileEvents: boolean;
   toolEvents: boolean;
   rawEvents: boolean;
 }
@@ -141,12 +142,28 @@ export type RuntimeEvent =
       raw?: unknown;
     }
   | {
+      type: "assistant.reasoning.delta";
+      atMs: number;
+      runId: UUID;
+      textDelta: string;
+      raw?: unknown;
+    }
+  | {
       type: "assistant.message";
       atMs: number;
       runId: UUID;
       message: {
         text: string;
         structuredOutput?: unknown;
+      };
+      raw?: unknown;
+    }
+  | {
+      type: "assistant.reasoning.message";
+      atMs: number;
+      runId: UUID;
+      message: {
+        text: string;
       };
       raw?: unknown;
     }
@@ -173,16 +190,6 @@ export type RuntimeEvent =
       runId: UUID;
       callId: UUID;
       output: unknown;
-      raw?: unknown;
-    }
-  | {
-      type: "file.changed";
-      atMs: number;
-      runId: UUID;
-      change: {
-        path: string;
-        kind: "add" | "delete" | "update" | "unknown";
-      };
       raw?: unknown;
     }
   | {

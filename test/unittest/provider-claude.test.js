@@ -148,6 +148,53 @@ test("Claude adapter wraps non-object outputSchema roots and unwraps structuredO
   assert.deepEqual(done.structuredOutput, [1, 2, 3]);
 });
 
+test("Claude adapter maps tool_progress to tool.call (deduped by tool_use_id)", async () => {
+  const runtime = new ClaudeRuntime({
+    query: () =>
+      (async function* () {
+        yield {
+          type: "tool_progress",
+          tool_use_id: "tool_1",
+          tool_name: "WebSearch",
+          parent_tool_use_id: null,
+          elapsed_time_seconds: 0,
+          uuid: "00000000-0000-0000-0000-000000000000",
+          session_id: "s",
+        };
+        yield {
+          type: "tool_progress",
+          tool_use_id: "tool_1",
+          tool_name: "WebSearch",
+          parent_tool_use_id: null,
+          elapsed_time_seconds: 1,
+          uuid: "00000000-0000-0000-0000-000000000000",
+          session_id: "s",
+        };
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_tool_progress", config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+
+  const toolCalls = [];
+  for await (const ev of run.events) {
+    if (ev.type === "tool.call") toolCalls.push(ev);
+  }
+
+  assert.equal(toolCalls.length, 1);
+  assert.equal(toolCalls[0].toolName, "WebSearch");
+  assert.equal(toolCalls[0].callId, "tool_1");
+});
+
 test("Claude adapter maps unified SessionConfig.permissions into Claude options (2x2x2 + yolo)", async (t) => {
   const cases = [];
   for (const network of [false, true]) {

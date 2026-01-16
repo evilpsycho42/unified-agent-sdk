@@ -108,7 +108,6 @@ export class CodexRuntime implements UnifiedAgentRuntime<CodexSessionConfig, nev
       structuredOutput: true,
       cancel: true,
       sessionResume: true,
-      fileEvents: true,
       toolEvents: true,
       rawEvents: true,
     };
@@ -155,6 +154,9 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
   private readonly thread: Thread;
   private activeRunId: UUID | undefined;
   private readonly abortControllers = new Map<UUID, AbortController>();
+  private readonly lastAgentTextByItemId = new Map<string, string>();
+  private readonly lastReasoningTextByItemId = new Map<string, string>();
+  private readonly seenToolCallIds = new Set<string>();
 
   constructor(params: { sessionId: string; thread: Thread }) {
     this.sessionId = params.sessionId;
@@ -168,7 +170,6 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
       structuredOutput: true,
       cancel: true,
       sessionResume: true,
-      fileEvents: true,
       toolEvents: true,
       rawEvents: true,
     };
@@ -179,8 +180,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
   }
 
   async run(req: RunRequest<never>): Promise<RunHandle> {
-    if (this.activeRunId) throw new SessionBusyError(this.activeRunId);
-    const runId = randomUUID() as UUID;
+	    if (this.activeRunId) throw new SessionBusyError(this.activeRunId);
+	    const runId = randomUUID() as UUID;
+	    this.lastAgentTextByItemId.clear();
+	    this.lastReasoningTextByItemId.clear();
+	    this.seenToolCallIds.clear();
 
     const { input, images } = normalizeRunInput(req);
     const abortController = new AbortController();
@@ -258,10 +262,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
     unwrapStructuredOutput: (value: unknown) => unknown,
     resolveResult: (value: Extract<RuntimeEvent, { type: "run.completed" }>) => void,
     abortController: AbortController,
-  ): AsyncGenerator<RuntimeEvent> {
-    const startedAt = Date.now();
-    let finalText: string | undefined;
-    let completed = false;
+	  ): AsyncGenerator<RuntimeEvent> {
+	    const startedAt = Date.now();
+	    let finalText: string | undefined;
+	    let reasoningText: string | undefined;
+	    let completed = false;
 
     try {
       yield {
@@ -280,40 +285,51 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
           ]
         : input;
 
-      const streamed = await this.thread.runStreamed(codexInput, turnOptions);
-      for await (const ev of streamed.events) {
-        yield* this.mapEvent(runId, ev, (t) => {
-          finalText = t;
-        });
+	      const streamed = await this.thread.runStreamed(codexInput, turnOptions);
+	      for await (const ev of streamed.events) {
+	        yield* this.mapEvent(runId, ev, {
+	          setFinalText: (t) => {
+	            finalText = t;
+	          },
+	          setReasoningText: (t) => {
+	            reasoningText = t;
+	          },
+	        });
 
         if (ev.type === "thread.started") {
           this.nativeSessionId = ev.thread_id;
         }
 
-        if (ev.type === "turn.completed") {
-          const u = {
-            inputTokens: ev.usage.input_tokens,
-            outputTokens: ev.usage.output_tokens,
-            totalTokens: ev.usage.input_tokens + ev.usage.output_tokens,
-            raw: ev.usage,
-          };
-          const parsed = turnOptions.outputSchema && typeof finalText === "string" ? tryParseJson(finalText) : undefined;
-          const structuredOutput = parsed === undefined ? undefined : unwrapStructuredOutput(parsed);
-          const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
-            type: "run.completed",
-            atMs: Date.now(),
-            runId,
-            status: "success",
-            finalText,
-            structuredOutput,
-            usage: u,
-            raw: ev,
-          };
-          completed = true;
-          yield done;
-          resolveResult(done);
-          break;
-        }
+	        if (ev.type === "turn.completed") {
+	          const inputTokens = ev.usage.input_tokens;
+	          const cacheReadTokens = ev.usage.cached_input_tokens;
+	          const outputTokens = ev.usage.output_tokens;
+	          const u = {
+	            input_tokens: inputTokens,
+	            cache_read_tokens: cacheReadTokens,
+	            cache_write_tokens: 0,
+	            output_tokens: outputTokens,
+	            total_tokens: inputTokens + cacheReadTokens + outputTokens,
+	            duration_ms: Date.now() - startedAt,
+	            raw: ev.usage,
+	          };
+	          const parsed = turnOptions.outputSchema && typeof finalText === "string" ? tryParseJson(finalText) : undefined;
+	          const structuredOutput = parsed === undefined ? undefined : unwrapStructuredOutput(parsed);
+	          const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
+	            type: "run.completed",
+	            atMs: Date.now(),
+	            runId,
+	            status: "success",
+	            finalText,
+	            structuredOutput,
+	            usage: u,
+	            raw: { ...(ev as any), reasoningText },
+	          };
+	          completed = true;
+	          yield done;
+	          resolveResult(done);
+	          break;
+	        }
 
         if (ev.type === "turn.failed") {
           const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
@@ -393,11 +409,74 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
   private *mapEvent(
     runId: UUID,
     ev: ThreadEvent,
-    setFinalText: (text: string) => void,
+    handlers: { setFinalText: (text: string) => void; setReasoningText: (text: string) => void },
   ): Generator<RuntimeEvent> {
+    const computeAgentDelta = (item: { id: string; text: string }): string | null => {
+      const prev = this.lastAgentTextByItemId.get(item.id) ?? "";
+      const next = item.text ?? "";
+      this.lastAgentTextByItemId.set(item.id, next);
+
+      if (next.length >= prev.length && next.startsWith(prev)) {
+        const delta = next.slice(prev.length);
+        return delta || null;
+      }
+
+      if (next && next !== prev) {
+        return next;
+      }
+
+      return null;
+    };
+
+    const computeReasoningDelta = (item: { id: string; text: string }): string | null => {
+      const prev = this.lastReasoningTextByItemId.get(item.id) ?? "";
+      const next = item.text ?? "";
+      this.lastReasoningTextByItemId.set(item.id, next);
+
+      if (next.length >= prev.length && next.startsWith(prev)) {
+        const delta = next.slice(prev.length);
+        return delta || null;
+      }
+
+      if (next && next !== prev) return next;
+      return null;
+    };
+
+    const toolCallNameAndInput = (item: any): { toolName: string; input: unknown } | null => {
+      if (item.type === "command_execution") return { toolName: "Bash", input: { command: item.command } };
+      if (item.type === "mcp_tool_call") return { toolName: `${item.server}.${item.tool}`, input: item.arguments };
+      if (item.type === "web_search") return { toolName: "WebSearch", input: { query: item.query } };
+      return null;
+    };
+
+    if (ev.type === "item.updated") {
+      const item = ev.item;
+      if (item.type === "agent_message") {
+        const delta = computeAgentDelta(item);
+        if (delta) yield { type: "assistant.delta", atMs: Date.now(), runId, textDelta: delta, raw: ev };
+        return;
+      }
+      if (item.type === "reasoning") {
+        const delta = computeReasoningDelta(item);
+        if (delta) yield { type: "assistant.reasoning.delta", atMs: Date.now(), runId, textDelta: delta, raw: ev };
+        return;
+      }
+    }
+
     if (ev.type === "item.started") {
       const item = ev.item;
+      if (item.type === "agent_message") {
+        const delta = computeAgentDelta(item);
+        if (delta) yield { type: "assistant.delta", atMs: Date.now(), runId, textDelta: delta, raw: ev };
+        return;
+      }
+      if (item.type === "reasoning") {
+        const delta = computeReasoningDelta(item);
+        if (delta) yield { type: "assistant.reasoning.delta", atMs: Date.now(), runId, textDelta: delta, raw: ev };
+        return;
+      }
       if (item.type === "command_execution") {
+        this.seenToolCallIds.add(item.id);
         yield {
           type: "tool.call",
           atMs: Date.now(),
@@ -410,6 +489,7 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
         return;
       }
       if (item.type === "mcp_tool_call") {
+        this.seenToolCallIds.add(item.id);
         yield {
           type: "tool.call",
           atMs: Date.now(),
@@ -422,6 +502,7 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
         return;
       }
       if (item.type === "web_search") {
+        this.seenToolCallIds.add(item.id);
         yield {
           type: "tool.call",
           atMs: Date.now(),
@@ -438,7 +519,8 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
     if (ev.type === "item.completed") {
       const item = ev.item;
       if (item.type === "agent_message") {
-        setFinalText(item.text);
+        this.lastAgentTextByItemId.delete(item.id);
+        handlers.setFinalText(item.text);
         yield {
           type: "assistant.message",
           atMs: Date.now(),
@@ -450,29 +532,31 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
       }
 
       if (item.type === "file_change") {
-        if (item.status === "completed") {
-          for (const change of item.changes) {
-            yield {
-              type: "file.changed",
-              atMs: Date.now(),
-              runId,
-              change: {
-                path: change.path,
-                kind:
-                  change.kind === "add" || change.kind === "delete" || change.kind === "update"
-                    ? change.kind
-                    : "unknown",
-              },
-              raw: ev,
-            };
-          }
-          return;
+        if (item.status === "failed") {
+          yield { type: "error", atMs: Date.now(), runId, message: "Codex file change patch failed.", raw: ev };
         }
-        yield { type: "error", atMs: Date.now(), runId, message: "Codex file change patch failed.", raw: ev };
+        return;
+      }
+
+      if (item.type === "reasoning") {
+        this.lastReasoningTextByItemId.delete(item.id);
+        handlers.setReasoningText(item.text);
+        yield {
+          type: "assistant.reasoning.message",
+          atMs: Date.now(),
+          runId,
+          message: { text: item.text },
+          raw: ev,
+        };
         return;
       }
 
       if (item.type === "command_execution") {
+        const info = toolCallNameAndInput(item);
+        if (info && !this.seenToolCallIds.has(item.id)) {
+          this.seenToolCallIds.add(item.id);
+          yield { type: "tool.call", atMs: Date.now(), runId, callId: item.id as UUID, toolName: info.toolName, input: info.input, raw: ev };
+        }
         yield {
           type: "tool.result",
           atMs: Date.now(),
@@ -490,6 +574,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
       }
 
       if (item.type === "mcp_tool_call") {
+        const info = toolCallNameAndInput(item);
+        if (info && !this.seenToolCallIds.has(item.id)) {
+          this.seenToolCallIds.add(item.id);
+          yield { type: "tool.call", atMs: Date.now(), runId, callId: item.id as UUID, toolName: info.toolName, input: info.input, raw: ev };
+        }
         yield {
           type: "tool.result",
           atMs: Date.now(),
@@ -502,6 +591,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
       }
 
       if (item.type === "web_search") {
+        const info = toolCallNameAndInput(item);
+        if (info && !this.seenToolCallIds.has(item.id)) {
+          this.seenToolCallIds.add(item.id);
+          yield { type: "tool.call", atMs: Date.now(), runId, callId: item.id as UUID, toolName: info.toolName, input: info.input, raw: ev };
+        }
         yield {
           type: "tool.result",
           atMs: Date.now(),

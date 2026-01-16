@@ -121,8 +121,7 @@ export class ClaudeRuntime
       structuredOutput: true,
       cancel: true,
       sessionResume: true,
-      fileEvents: false,
-      toolEvents: false,
+      toolEvents: true,
       rawEvents: true,
     };
   }
@@ -199,8 +198,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
       structuredOutput: true,
       cancel: true,
       sessionResume: true,
-      fileEvents: false,
-      toolEvents: false,
+      toolEvents: true,
       rawEvents: true,
     };
   }
@@ -283,6 +281,8 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     let completed = false;
     let finalText: string | undefined;
     let structuredOutput: unknown | undefined;
+    const toolCallsSeen = new Set<string>();
+    const toolResultsSeen = new Set<string>();
 
     const runProvider: Partial<ClaudeSessionConfig> = req.config?.provider ?? {};
 
@@ -327,7 +327,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
       for await (const msg of q) {
         this.nativeSessionId = (msg as { session_id?: string }).session_id ?? this.nativeSessionId;
 
-        const mapped = mapClaudeMessage(runId, msg);
+        const mapped = mapClaudeMessage(runId, msg, { toolCallsSeen, toolResultsSeen });
         for (const ev of mapped.events) yield ev;
 
         if (mapped.result) {
@@ -631,33 +631,30 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 function mapClaudeMessage(
   runId: UUID,
   msg: SDKMessage,
+  state?: { toolCallsSeen: Set<string>; toolResultsSeen: Set<string> },
 ): {
   events: RuntimeEvent[];
   result?: {
     status: "success" | "error";
     finalText?: string;
     structuredOutput?: unknown;
-    usage?: { costUsd?: number; durationMs?: number; inputTokens?: number; outputTokens?: number; raw?: unknown };
+    usage?: { input_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; output_tokens?: number; total_tokens?: number; cost_usd?: number; duration_ms?: number; raw?: unknown };
   };
 } {
-  if (msg.type === "stream_event") {
-    const delta = extractTextDelta(msg as SDKPartialAssistantMessage);
-    if (delta) {
-      return { events: [{ type: "assistant.delta", atMs: Date.now(), runId, textDelta: delta, raw: msg }] };
-    }
-    return { events: [] };
-  }
-
-  if (msg.type === "assistant") {
-    const text = extractAssistantText(msg as SDKAssistantMessage);
-    if (text) {
+  if (msg.type === "tool_progress") {
+    const toolUseId = (msg as any).tool_use_id as string | undefined;
+    const toolName = (msg as any).tool_name as string | undefined;
+    if (state && toolUseId && toolName && !state.toolCallsSeen.has(toolUseId)) {
+      state.toolCallsSeen.add(toolUseId);
       return {
         events: [
           {
-            type: "assistant.message",
+            type: "tool.call",
             atMs: Date.now(),
             runId,
-            message: { text },
+            callId: toolUseId as UUID,
+            toolName,
+            input: null,
             raw: msg,
           },
         ],
@@ -666,10 +663,87 @@ function mapClaudeMessage(
     return { events: [] };
   }
 
+  if (msg.type === "stream_event") {
+    const delta = extractTextDelta(msg as SDKPartialAssistantMessage);
+    if (delta) {
+      return { events: [{ type: "assistant.delta", atMs: Date.now(), runId, textDelta: delta, raw: msg }] };
+    }
+    const thinkingDelta = extractThinkingDelta(msg as SDKPartialAssistantMessage);
+    if (thinkingDelta) {
+      return { events: [{ type: "assistant.reasoning.delta", atMs: Date.now(), runId, textDelta: thinkingDelta, raw: msg }] };
+    }
+    return { events: [] };
+  }
+
+  if (msg.type === "assistant") {
+    const { text, reasoning, toolUses } = extractAssistantContent(msg as SDKAssistantMessage);
+    const events: RuntimeEvent[] = [];
+
+    if (state) {
+      for (const toolUse of toolUses) {
+        if (!toolUse.id || !toolUse.name) continue;
+        if (state.toolCallsSeen.has(toolUse.id)) continue;
+        state.toolCallsSeen.add(toolUse.id);
+        events.push({
+          type: "tool.call",
+          atMs: Date.now(),
+          runId,
+          callId: toolUse.id as UUID,
+          toolName: toolUse.name,
+          input: toolUse.input ?? null,
+          raw: msg,
+        });
+      }
+    }
+
+    if (text) {
+      events.push({
+        type: "assistant.message",
+        atMs: Date.now(),
+        runId,
+        message: { text },
+        raw: msg,
+      });
+    }
+
+    if (reasoning) {
+      events.push({
+        type: "assistant.reasoning.message",
+        atMs: Date.now(),
+        runId,
+        message: { text: reasoning },
+        raw: msg,
+      });
+    }
+
+    return { events };
+  }
+
+  if (msg.type === "user") {
+    const events: RuntimeEvent[] = [];
+    if (state) {
+      for (const r of extractToolResultsFromUserMessage(msg as any)) {
+        if (!r.toolUseId) continue;
+        if (state.toolResultsSeen.has(r.toolUseId)) continue;
+        state.toolResultsSeen.add(r.toolUseId);
+        events.push({
+          type: "tool.result",
+          atMs: Date.now(),
+          runId,
+          callId: r.toolUseId as UUID,
+          output: r.output,
+          raw: msg,
+        });
+      }
+    }
+    return { events };
+  }
+
   if (msg.type === "result") {
     const r = msg as SDKResultMessage;
     if (r.subtype === "success") {
       const success = r as SDKResultSuccess;
+      const tokenUsage = extractClaudeTokenUsage(success.usage);
       return {
         events: [],
         result: {
@@ -677,8 +751,9 @@ function mapClaudeMessage(
           finalText: success.result,
           structuredOutput: success.structured_output,
           usage: {
-            costUsd: success.total_cost_usd,
-            durationMs: success.duration_ms,
+            ...tokenUsage,
+            cost_usd: success.total_cost_usd,
+            duration_ms: success.duration_ms,
             raw: success.usage,
           },
         },
@@ -686,12 +761,13 @@ function mapClaudeMessage(
     }
 
     const error = r as SDKResultError;
+    const tokenUsage = extractClaudeTokenUsage(error.usage);
     return {
       events: [],
       result: {
         status: "error",
         finalText: error.errors?.join("\n") ?? undefined,
-        usage: { costUsd: error.total_cost_usd, durationMs: error.duration_ms, raw: error.usage },
+        usage: { ...tokenUsage, cost_usd: error.total_cost_usd, duration_ms: error.duration_ms, raw: error.usage },
       },
     };
   }
@@ -707,6 +783,14 @@ function extractTextDelta(msg: SDKPartialAssistantMessage): string | null {
   return null;
 }
 
+function extractThinkingDelta(msg: SDKPartialAssistantMessage): string | null {
+  const ev = msg.event as unknown as { type?: string; delta?: { type?: string; thinking?: string } };
+  if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && typeof ev.delta.thinking === "string") {
+    return ev.delta.thinking;
+  }
+  return null;
+}
+
 function extractAssistantText(msg: SDKAssistantMessage): string | null {
   const m = msg.message as unknown as { content?: unknown };
   const content = m?.content;
@@ -715,6 +799,82 @@ function extractAssistantText(msg: SDKAssistantMessage): string | null {
     .map((b) => (b && typeof b === "object" ? (b as { type?: string; text?: string }).type === "text" ? (b as { text?: string }).text : undefined : undefined))
     .filter((t): t is string => typeof t === "string");
   return texts.length ? texts.join("") : null;
+}
+
+function extractAssistantContent(
+  msg: SDKAssistantMessage,
+): { text: string | null; reasoning: string | null; toolUses: Array<{ id?: string; name?: string; input?: unknown }> } {
+  const m = msg.message as unknown as { content?: unknown };
+  const content = m?.content;
+  if (!Array.isArray(content)) return { text: extractAssistantText(msg), reasoning: null, toolUses: [] };
+
+  const texts: string[] = [];
+  const reasonings: string[] = [];
+  const toolUses: Array<{ id?: string; name?: string; input?: unknown }> = [];
+
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as any;
+    if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
+    if (b.type === "tool_use") toolUses.push({ id: typeof b.id === "string" ? b.id : undefined, name: b.name, input: b.input });
+    if (b.type === "thinking" && typeof b.thinking === "string") reasonings.push(b.thinking);
+  }
+
+  return { text: texts.length ? texts.join("") : null, reasoning: reasonings.length ? reasonings.join("") : null, toolUses };
+}
+
+function extractToolResultsFromUserMessage(msg: any): Array<{ toolUseId?: string; output: unknown }> {
+  const m = msg?.message;
+  const content = m?.content;
+  if (!Array.isArray(content)) return [];
+
+  const results: Array<{ toolUseId?: string; output: unknown }> = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as any;
+    if (b.type !== "tool_result") continue;
+
+    const toolUseId = typeof b.tool_use_id === "string" ? b.tool_use_id : typeof b.toolUseId === "string" ? b.toolUseId : undefined;
+    results.push({ toolUseId, output: b });
+  }
+  return results;
+}
+
+function extractClaudeTokenUsage(usage: unknown): {
+  input_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+} {
+  const u = usage as any;
+  const inputTokens = typeof u?.input_tokens === "number" ? u.input_tokens : typeof u?.inputTokens === "number" ? u.inputTokens : undefined;
+  const outputTokens = typeof u?.output_tokens === "number" ? u.output_tokens : typeof u?.outputTokens === "number" ? u.outputTokens : undefined;
+  const cacheReadTokens =
+    typeof u?.cache_read_input_tokens === "number"
+      ? u.cache_read_input_tokens
+      : typeof u?.cacheReadInputTokens === "number"
+        ? u.cacheReadInputTokens
+        : undefined;
+  const cacheWriteTokens =
+    typeof u?.cache_creation_input_tokens === "number"
+      ? u.cache_creation_input_tokens
+      : typeof u?.cacheCreationInputTokens === "number"
+        ? u.cacheCreationInputTokens
+        : undefined;
+
+  const totalTokens =
+    [inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens].every((x) => typeof x === "number")
+      ? (inputTokens as number) + (cacheReadTokens as number) + (cacheWriteTokens as number) + (outputTokens as number)
+      : undefined;
+
+  return {
+    input_tokens: inputTokens,
+    cache_read_tokens: cacheReadTokens,
+    cache_write_tokens: cacheWriteTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+  };
 }
 
 function normalizeStructuredOutputSchema(
