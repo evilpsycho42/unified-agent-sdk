@@ -1,5 +1,6 @@
 scripts/configs
 .profiles
+refs/
 
 # Logs
 logs
