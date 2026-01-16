@@ -1,7 +1,10 @@
 {
   "name": "@unified-agent-sdk/provider-claude",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -11,7 +14,7 @@
   },
   "files": ["dist"],
   "dependencies": {
-    "@unified-agent-sdk/runtime-core": "file:../runtime-core"
+    "@unified-agent-sdk/runtime-core": "^0.1.0"
   },
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": "*",

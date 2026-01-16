@@ -1,7 +1,10 @@
 {
   "name": "@unified-agent-sdk/runtime",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -11,9 +14,9 @@
   },
   "files": ["dist"],
   "dependencies": {
-    "@unified-agent-sdk/runtime-core": "file:../runtime-core",
-    "@unified-agent-sdk/provider-claude": "file:../provider-claude",
-    "@unified-agent-sdk/provider-codex": "file:../provider-codex"
+    "@unified-agent-sdk/runtime-core": "^0.1.0",
+    "@unified-agent-sdk/provider-claude": "^0.1.0",
+    "@unified-agent-sdk/provider-codex": "^0.1.0"
   },
   "scripts": {
     "build": "tsc -b",
