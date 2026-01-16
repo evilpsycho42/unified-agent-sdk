@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "references": [
+    { "path": "../runtime-core" },
+    { "path": "../provider-claude" },
+    { "path": "../provider-codex" }
+  ],
+  "include": ["src/**/*.ts"]
+}

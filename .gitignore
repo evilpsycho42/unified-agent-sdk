@@ -1,3 +1,6 @@
+scripts/configs
+.profiles
+
 # Logs
 logs
 *.log

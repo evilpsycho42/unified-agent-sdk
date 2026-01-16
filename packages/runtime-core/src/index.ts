@@ -1,0 +1,260 @@
+export type ProviderId = string & { readonly __providerIdBrand?: unique symbol };
+export type UUID = string & { readonly __uuidBrand?: unique symbol };
+
+export type JsonSchema = Record<string, unknown>;
+
+export type SessionBusyErrorCode = "SESSION_BUSY";
+
+export class SessionBusyError extends Error {
+  public readonly code: SessionBusyErrorCode = "SESSION_BUSY";
+  public readonly activeRunId: UUID;
+
+  constructor(activeRunId: UUID) {
+    super(`Session is busy (activeRunId=${activeRunId}).`);
+    this.name = "SessionBusyError";
+    this.activeRunId = activeRunId;
+    Object.setPrototypeOf(this, SessionBusyError.prototype);
+  }
+}
+
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "local_image"; path: string };
+
+export type TurnInput = {
+  parts: ContentPart[];
+};
+
+export interface WorkspaceConfig {
+  cwd: string;
+  additionalDirs?: string[];
+}
+
+/**
+ * Unified sandbox/permission controls.
+ *
+ * Notes:
+ * - Providers differ in what can be enforced without an OS sandbox.
+ * - `yolo` is an opinionated shortcut for "full autonomy": enables network + write and disables sandbox.
+ */
+export type PermissionsConfig = {
+  /** Allow outbound network access (provider-dependent). */
+  network?: boolean;
+  /** Enable provider sandboxing when available. */
+  sandbox?: boolean;
+  /** Allow filesystem writes and other mutating actions (provider-dependent). */
+  write?: boolean;
+  /** Shortcut for full autonomy: sets `network=true`, `write=true`, `sandbox=false`. */
+  yolo?: boolean;
+};
+
+export type ProviderConfig = Record<string, unknown>;
+
+export interface SessionConfig<TProvider = ProviderConfig> {
+  /**
+   * Workspace / filesystem scope for the session (maps to provider-specific concepts like
+   * Claude `cwd`+`additionalDirectories` and Codex `workingDirectory`+`additionalDirectories`).
+   */
+  workspace?: WorkspaceConfig;
+  /**
+   * Preferred model identifier for this session.
+   *
+   * Notes:
+   * - This is optional and provider-dependent, but most providers support a string model name.
+   * - When omitted, provider defaults and config files remain the source of truth.
+   */
+  model?: string;
+  /**
+   * Unified sandbox/permission controls applied by provider adapters.
+   * When omitted, provider-specific config remains the source of truth.
+   */
+  permissions?: PermissionsConfig;
+  /**
+   * Provider-specific session configuration (opaque to runtime-core).
+   * Each provider package exports strongly-typed shapes for this value.
+   */
+  provider?: TProvider;
+}
+
+export interface RunConfig<TRunProvider = ProviderConfig> {
+  /**
+   * JSON Schema describing expected structured output.
+   * Support is provider-dependent (see `capabilities().structuredOutput`).
+   */
+  outputSchema?: JsonSchema;
+  /** AbortSignal to cancel the run. */
+  signal?: AbortSignal;
+  /**
+   * Provider-specific per-run configuration (opaque to runtime-core).
+   * Each provider package may choose to support/ignore this.
+   */
+  provider?: TRunProvider;
+}
+
+export interface RunRequest<TRunProvider = ProviderConfig> {
+  input: TurnInput | TurnInput[] | AsyncIterable<TurnInput>;
+  config?: RunConfig<TRunProvider>;
+}
+
+export interface Usage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+  durationMs?: number;
+  raw?: unknown;
+}
+
+export interface RuntimeCapabilities {
+  streamingOutput: boolean;
+  structuredOutput: boolean;
+  cancel: boolean;
+  sessionResume: boolean;
+  fileEvents: boolean;
+  toolEvents: boolean;
+  rawEvents: boolean;
+}
+
+export type SessionState = "idle" | "running" | "error";
+
+export interface SessionStatus {
+  state: SessionState;
+  activeRunId?: UUID;
+  raw?: unknown;
+}
+
+export type RuntimeEvent =
+  | {
+      type: "run.started";
+      atMs: number;
+      provider: ProviderId;
+      sessionId: string;
+      nativeSessionId?: string;
+      runId: UUID;
+      raw?: unknown;
+    }
+  | {
+      type: "assistant.delta";
+      atMs: number;
+      runId: UUID;
+      textDelta: string;
+      raw?: unknown;
+    }
+  | {
+      type: "assistant.message";
+      atMs: number;
+      runId: UUID;
+      message: {
+        text: string;
+        structuredOutput?: unknown;
+      };
+      raw?: unknown;
+    }
+  | {
+      type: "provider.event";
+      atMs: number;
+      runId: UUID;
+      provider: ProviderId;
+      payload: unknown;
+      raw?: unknown;
+    }
+  | {
+      type: "tool.call";
+      atMs: number;
+      runId: UUID;
+      callId: UUID;
+      toolName: string;
+      input: unknown;
+      raw?: unknown;
+    }
+  | {
+      type: "tool.result";
+      atMs: number;
+      runId: UUID;
+      callId: UUID;
+      output: unknown;
+      raw?: unknown;
+    }
+  | {
+      type: "file.changed";
+      atMs: number;
+      runId: UUID;
+      change: {
+        path: string;
+        kind: "add" | "delete" | "update" | "unknown";
+      };
+      raw?: unknown;
+    }
+  | {
+      type: "run.completed";
+      atMs: number;
+      runId: UUID;
+      status: "success" | "error" | "cancelled";
+      finalText?: string;
+      structuredOutput?: unknown;
+      usage?: Usage;
+      raw?: unknown;
+    }
+  | {
+      type: "error";
+      atMs: number;
+      runId?: UUID;
+      message: string;
+      code?: string;
+      raw?: unknown;
+    };
+
+export interface RunHandle {
+  runId: UUID;
+  events: AsyncIterable<RuntimeEvent>;
+  result: Promise<Extract<RuntimeEvent, { type: "run.completed" }>>;
+  cancel(): Promise<void>;
+}
+
+export interface SessionHandle {
+  provider: ProviderId;
+  sessionId: string;
+  nativeSessionId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UnifiedSession<
+  TSessionProvider = ProviderConfig,
+  TRunProvider = ProviderConfig
+> {
+  provider: ProviderId;
+  sessionId: string;
+  nativeSessionId?: string;
+
+  capabilities(): Promise<RuntimeCapabilities>;
+  status(): Promise<SessionStatus>;
+
+  run(req: RunRequest<TRunProvider>): Promise<RunHandle>;
+  cancel(runId?: UUID): Promise<void>;
+
+  snapshot(): Promise<SessionHandle>;
+  dispose(): Promise<void>;
+}
+
+export interface UnifiedAgentRuntime<
+  TSessionProvider = ProviderConfig,
+  TRunProvider = ProviderConfig
+> {
+  provider: ProviderId;
+  capabilities(): Promise<RuntimeCapabilities>;
+
+  openSession(init: {
+    sessionId: string;
+    config?: SessionConfig<TSessionProvider>;
+  }): Promise<UnifiedSession<TSessionProvider, TRunProvider>>;
+
+  resumeSession(handle: SessionHandle): Promise<UnifiedSession<TSessionProvider, TRunProvider>>;
+  close(): Promise<void>;
+}
+
+export function asText(input: TurnInput): string {
+  return input.parts
+    .filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
+    .map((p) => p.text)
+    .join("\n\n");
+}

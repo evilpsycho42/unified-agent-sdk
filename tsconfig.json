@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/runtime-core" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/provider-claude" },
+    { "path": "./packages/provider-codex" }
+  ]
+}
