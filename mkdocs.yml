@@ -38,6 +38,7 @@ nav:
       - Packages: reference/packages.md
   - Specs:
       - Testing: specs/testing.md
+      - Instruction Discovery: specs/instruction-discovery.md
       - Permission Mapping: specs/permission.md
       - Event Mapping: specs/event-mapping.md
       - ACP: specs/acp.md
