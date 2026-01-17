@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 
 import { ClaudeRuntime } from "@unified-agent-sdk/provider-claude";
-import { SessionBusyError } from "@unified-agent-sdk/runtime-core";
+import { SessionBusyError, UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY } from "@unified-agent-sdk/runtime-core";
 
 test("ClaudeSession.cancel(runId) aborts the run and reports cancelled", async () => {
   const runtime = new ClaudeRuntime({
@@ -33,6 +33,88 @@ test("ClaudeSession.cancel(runId) aborts the run and reports cancelled", async (
   const done = events.find((e) => e.type === "run.completed");
   assert.ok(done, "expected run.completed event");
   assert.equal(done.status, "cancelled");
+});
+
+test("Claude adapter mirrors an already-aborted RunConfig.signal into the SDK abortController", async () => {
+  let sawAborted = false;
+  let sawReason;
+
+  const runtime = new ClaudeRuntime({
+    query: ({ options }) =>
+      (async function* () {
+        sawAborted = options.abortController.signal.aborted;
+        sawReason = options.abortController.signal.reason;
+      })(),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_aborted", config: { workspace: { cwd: process.cwd() } } });
+  const external = new AbortController();
+  external.abort("already");
+
+  const run = await session.run({
+    input: { parts: [{ type: "text", text: "hello" }] },
+    config: { signal: external.signal },
+  });
+
+  let done;
+  for await (const ev of run.events) {
+    if (ev.type === "run.completed") done = ev;
+  }
+
+  assert.equal(sawAborted, true);
+  assert.equal(sawReason, "already");
+  assert.ok(done, "expected run.completed event");
+  assert.equal(done.status, "cancelled");
+});
+
+test("Claude adapter removes external abort listener after run completes", async () => {
+  const listeners = new Set();
+  let addCalls = 0;
+  let removeCalls = 0;
+
+  const signal = {
+    aborted: false,
+    reason: undefined,
+    addEventListener: (type, callback) => {
+      if (type !== "abort") return;
+      addCalls += 1;
+      listeners.add(callback);
+    },
+    removeEventListener: (type, callback) => {
+      if (type !== "abort") return;
+      removeCalls += 1;
+      listeners.delete(callback);
+    },
+  };
+
+  const runtime = new ClaudeRuntime({
+    query: () =>
+      (async function* () {
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_listener_cleanup", config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] }, config: { signal } });
+
+  for await (const _ev of run.events) {
+    // drain
+  }
+
+  const done = await run.result;
+  assert.equal(done.status, "success");
+
+  assert.equal(addCalls, 1);
+  assert.equal(removeCalls, 1);
+  assert.equal(listeners.size, 0);
 });
 
 test("Claude adapter resolves run.result even when events are not consumed", async () => {
@@ -498,6 +580,65 @@ test("Claude adapter respects explicit settingSources (including empty array)", 
   const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
 
   for await (const _ev of run.events) {
+    // drain
+  }
+});
+
+test("Claude resumeSession restores unified session config from snapshot metadata", async () => {
+  let call = 0;
+  const runtime = new ClaudeRuntime({
+    query: ({ options }) =>
+      (async function* () {
+        call += 1;
+
+        assert.equal(options.cwd, "/repo");
+        assert.deepEqual(options.additionalDirectories, ["/extra"]);
+        assert.equal(options.model, "gpt-5");
+        assert.equal(options.maxThinkingTokens, 12_000);
+
+        if (call === 1) {
+          assert.equal(options.resume, undefined);
+        } else if (call === 2) {
+          assert.equal(options.resume, "native_1");
+        } else {
+          throw new Error(`unexpected query() call count: ${call}`);
+        }
+
+        yield {
+          session_id: "native_1",
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({
+    sessionId: "s_resume",
+    config: {
+      workspace: { cwd: "/repo", additionalDirs: ["/extra"] },
+      access: { auto: "low", network: false, webSearch: false },
+      model: "gpt-5",
+      reasoningEffort: "high",
+    },
+  });
+
+  const run1 = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+  for await (const _ev of run1.events) {
+    // drain
+  }
+
+  const handle = await session.snapshot();
+  assert.equal(handle.nativeSessionId, "native_1");
+  assert.ok(handle.metadata?.[UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY], "expected unified metadata entry");
+
+  const resumed = await runtime.resumeSession(handle);
+  const run2 = await resumed.run({ input: { parts: [{ type: "text", text: "hello again" }] } });
+  for await (const _ev of run2.events) {
     // drain
   }
 });

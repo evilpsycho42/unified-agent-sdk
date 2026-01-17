@@ -22,12 +22,14 @@ import type {
   SessionConfig,
   SessionHandle,
   SessionStatus,
+  UnifiedAgentSdkSessionConfigSnapshot,
+  UnifiedAgentSdkSessionHandleMetadataV1,
   UnifiedAgentRuntime,
   UnifiedSession,
   UUID,
   WorkspaceConfig,
 } from "@unified-agent-sdk/runtime-core";
-import { asText, SessionBusyError } from "@unified-agent-sdk/runtime-core";
+import { asText, SessionBusyError, UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY } from "@unified-agent-sdk/runtime-core";
 import { AsyncEventStream, normalizeStructuredOutputSchema } from "@unified-agent-sdk/runtime-core/internal";
 
 export const PROVIDER_CLAUDE_AGENT_SDK = "@anthropic-ai/claude-agent-sdk" as ProviderId;
@@ -77,6 +79,7 @@ export class ClaudeRuntime
     return {
       streamingOutput: true,
       structuredOutput: true,
+      reasoningEvents: "best_effort",
       cancel: true,
       sessionResume: true,
       toolEvents: true,
@@ -105,12 +108,16 @@ export class ClaudeRuntime
     if (!handle.nativeSessionId) {
       throw new Error("Claude resumeSession requires nativeSessionId (Claude session id).");
     }
+    const restored = readUnifiedAgentSdkSessionConfig(handle);
     return new ClaudeSession({
       sessionId: handle.sessionId,
-      workspace: undefined,
-      access: undefined,
+      workspace: restored?.workspace,
+      access: restored?.access,
+      model: restored?.model,
+      reasoningEffort: restored?.reasoningEffort,
       defaults: this.defaults,
       queryFn: this.queryFn,
+      baseMetadata: handle.metadata,
       sessionProvider: { resumeSessionId: handle.nativeSessionId } as ClaudeSessionConfig,
     });
   }
@@ -130,6 +137,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
   private readonly queryFn: typeof claudeQuery;
   private readonly sessionProvider: ClaudeSessionConfig;
   private readonly access?: AccessConfig;
+  private readonly baseMetadata?: Record<string, unknown>;
   private activeRunId: UUID | undefined;
   private readonly abortControllers = new Map<UUID, AbortController>();
 
@@ -137,6 +145,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     sessionId: string;
     workspace?: WorkspaceConfig;
     access?: AccessConfig;
+    baseMetadata?: Record<string, unknown>;
     model?: string;
     reasoningEffort?: ReasoningEffort;
     defaults?: ClaudeRuntimeConfig["defaults"];
@@ -146,6 +155,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     this.sessionId = params.sessionId;
     this.workspace = params.workspace;
     this.access = params.access;
+    this.baseMetadata = params.baseMetadata;
     this.model = params.model;
     this.reasoningEffort = params.reasoningEffort;
     this.defaults = params.defaults;
@@ -158,6 +168,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     return {
       streamingOutput: true,
       structuredOutput: true,
+      reasoningEvents: "best_effort",
       cancel: true,
       sessionResume: true,
       toolEvents: true,
@@ -175,11 +186,17 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
 
     const abortController = new AbortController();
     this.abortControllers.set(runId, abortController);
-    if (req.config?.signal) {
+    const signal = req.config?.signal;
+    let removeExternalAbortListener: (() => void) | undefined;
+    if (signal) {
       // Mirror external abort into the SDK abortController.
-      req.config.signal.addEventListener("abort", () => abortController.abort(req.config?.signal?.reason), {
-        once: true,
-      });
+      const mirrorAbort = () => abortController.abort(signal.reason);
+      signal.addEventListener("abort", mirrorAbort, { once: true });
+      removeExternalAbortListener = () => signal.removeEventListener("abort", mirrorAbort);
+      if (signal.aborted) {
+        mirrorAbort();
+        removeExternalAbortListener();
+      }
     }
 
     let resolveResult!: (value: Extract<RuntimeEvent, { type: "run.completed" }>) => void;
@@ -219,6 +236,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
           resolveResult(done);
         }
       } finally {
+        removeExternalAbortListener?.();
         this.abortControllers.delete(runId);
         if (this.activeRunId === runId) this.activeRunId = undefined;
         events.close();
@@ -395,7 +413,19 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
   }
 
   async snapshot(): Promise<SessionHandle> {
-    return { provider: PROVIDER_CLAUDE_AGENT_SDK, sessionId: this.sessionId, nativeSessionId: this.nativeSessionId };
+    const snapshotConfig: UnifiedAgentSdkSessionConfigSnapshot = {
+      workspace: this.workspace,
+      access: normalizeAccess(this.access),
+      model: this.model,
+      reasoningEffort: this.reasoningEffort ?? "medium",
+    };
+
+    return {
+      provider: PROVIDER_CLAUDE_AGENT_SDK,
+      sessionId: this.sessionId,
+      nativeSessionId: this.nativeSessionId,
+      metadata: mergeMetadata(this.baseMetadata, encodeUnifiedAgentSdkMetadata(snapshotConfig)),
+    };
   }
 
   async dispose(): Promise<void> {}
@@ -433,6 +463,68 @@ function normalizeAccess(input: AccessConfig | undefined): Required<AccessConfig
     network: input?.network ?? true,
     webSearch: input?.webSearch ?? true,
   };
+}
+
+function readUnifiedAgentSdkSessionConfig(handle: SessionHandle): UnifiedAgentSdkSessionConfigSnapshot | undefined {
+  const metadata = handle.metadata;
+  if (!metadata || typeof metadata !== "object") return undefined;
+  const raw = (metadata as Record<string, unknown>)[UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY];
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const parsed = raw as Partial<UnifiedAgentSdkSessionHandleMetadataV1>;
+  if (parsed.version !== 1 || !parsed.sessionConfig || typeof parsed.sessionConfig !== "object") return undefined;
+
+  const cfg = parsed.sessionConfig as Record<string, unknown>;
+  const out: UnifiedAgentSdkSessionConfigSnapshot = {};
+
+  const workspace = cfg.workspace;
+  if (workspace && typeof workspace === "object" && !Array.isArray(workspace)) {
+    const cwd = (workspace as { cwd?: unknown }).cwd;
+    const additionalDirs = (workspace as { additionalDirs?: unknown }).additionalDirs;
+    const ws: UnifiedAgentSdkSessionConfigSnapshot["workspace"] = typeof cwd === "string" && cwd ? { cwd } : undefined;
+    if (ws && Array.isArray(additionalDirs) && additionalDirs.every((d) => typeof d === "string" && d)) {
+      ws.additionalDirs = additionalDirs;
+    }
+    if (ws) out.workspace = ws;
+  }
+
+  const access = cfg.access;
+  if (access && typeof access === "object" && !Array.isArray(access)) {
+    const auto = (access as { auto?: unknown }).auto;
+    const network = (access as { network?: unknown }).network;
+    const webSearch = (access as { webSearch?: unknown }).webSearch;
+
+    out.access = {
+      ...(auto === "low" || auto === "medium" || auto === "high" ? { auto } : {}),
+      ...(typeof network === "boolean" ? { network } : {}),
+      ...(typeof webSearch === "boolean" ? { webSearch } : {}),
+    };
+  }
+
+  const model = cfg.model;
+  if (typeof model === "string" && model.trim()) out.model = model.trim();
+
+  const reasoningEffort = cfg.reasoningEffort;
+  if (
+    reasoningEffort === "none" ||
+    reasoningEffort === "low" ||
+    reasoningEffort === "medium" ||
+    reasoningEffort === "high" ||
+    reasoningEffort === "xhigh"
+  ) {
+    out.reasoningEffort = reasoningEffort;
+  }
+
+  return out;
+}
+
+function encodeUnifiedAgentSdkMetadata(sessionConfig: UnifiedAgentSdkSessionConfigSnapshot): Record<string, unknown> {
+  const value: UnifiedAgentSdkSessionHandleMetadataV1 = { version: 1, sessionConfig };
+  return { [UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY]: value };
+}
+
+function mergeMetadata(a: Record<string, unknown> | undefined, b: Record<string, unknown>): Record<string, unknown> {
+  return { ...(a ?? {}), ...b };
 }
 
 function mapReasoningEffortToClaudeMaxThinkingTokens(effort: ReasoningEffort): number {

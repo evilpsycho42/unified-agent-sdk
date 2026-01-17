@@ -63,3 +63,4 @@ Notes:
 - `UnifiedSession.run()` starts immediately; `RunHandle.result` settles even if you don't consume `RunHandle.events` (see [Testing](../specs/testing.md)).
 - `RunHandle.events` is a single-consumer stream; consume it promptly for streaming output/telemetry.
 - A `UnifiedSession` supports one active `run()` at a time; concurrent calls throw `SessionBusyError` (queue/schedule in your orchestrator).
+- `SessionConfig.access` is mapped into provider-native enforcement and does not behave identically across providers (see [Access](../specs/permission.md)).

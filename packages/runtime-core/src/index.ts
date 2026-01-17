@@ -145,6 +145,14 @@ export interface Usage {
 export interface RuntimeCapabilities {
   streamingOutput: boolean;
   structuredOutput: boolean;
+  /**
+   * Reliability of `assistant.reasoning.*` events.
+   *
+   * Notes:
+   * - Reasoning/thinking output is provider/model/setting-dependent.
+   * - Consumers should treat reasoning events as optional unless `reliable`.
+   */
+  reasoningEvents?: "none" | "best_effort" | "reliable";
   cancel: boolean;
   sessionResume: boolean;
   toolEvents: boolean;
@@ -259,6 +267,27 @@ export interface SessionHandle {
   nativeSessionId?: string;
   metadata?: Record<string, unknown>;
 }
+
+/**
+ * Reserved `SessionHandle.metadata` key used by this SDK to persist unified session config for lossless resume.
+ *
+ * Notes:
+ * - Provider adapters may include this key in `snapshot()` results.
+ * - `resumeSession()` implementations may read this key when present.
+ */
+export const UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY = "unifiedAgentSdk";
+
+export type UnifiedAgentSdkSessionConfigSnapshot = {
+  workspace?: WorkspaceConfig;
+  access?: AccessConfig;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
+export type UnifiedAgentSdkSessionHandleMetadataV1 = {
+  version: 1;
+  sessionConfig: UnifiedAgentSdkSessionConfigSnapshot;
+};
 
 export interface UnifiedSession<
   TSessionProvider = ProviderConfig,

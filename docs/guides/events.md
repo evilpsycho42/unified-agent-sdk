@@ -20,7 +20,7 @@ for await (const ev of run.events) {
 Common events:
 - `run.started`
 - `assistant.delta` / `assistant.message`
-- `assistant.reasoning.delta` / `assistant.reasoning.message` (provider-dependent)
+- `assistant.reasoning.delta` / `assistant.reasoning.message` (best-effort; check `capabilities().reasoningEvents`)
 - `tool.call` / `tool.result` (provider-dependent)
 - `run.completed`
 

@@ -19,10 +19,16 @@ import { dirname } from "node:path";
 
 import { ClaudeRuntime, type ClaudeRuntimeConfig, type ClaudeSessionConfig } from "@unified-agent-sdk/provider-claude";
 import { CodexRuntime, type CodexRuntimeConfig, type CodexSessionConfig } from "@unified-agent-sdk/provider-codex";
-import type { AccessConfig, ReasoningEffort, SessionHandle, UnifiedAgentRuntime, WorkspaceConfig } from "@unified-agent-sdk/runtime-core";
+import type {
+  AccessConfig,
+  ReasoningEffort,
+  SessionHandle,
+  UnifiedAgentRuntime,
+  WorkspaceConfig,
+} from "@unified-agent-sdk/runtime-core";
 import type { ThreadOptions } from "@openai/codex-sdk";
 
-import { mergeSessionConfigWithDefaults } from "./internal.js";
+import { mergeSessionConfigWithDefaults, mergeSessionHandleWithDefaults } from "./internal.js";
 
 export type EnvVars = Record<string, string | undefined>;
 
@@ -160,19 +166,6 @@ function createClaudeRuntime(
     access: defaultOpts?.access,
     model: defaultOpts?.model,
     reasoningEffort: defaultOpts?.reasoningEffort,
-    resumeSession: async (handle) => {
-      if (!handle.nativeSessionId) throw new Error("Claude resumeSession requires nativeSessionId (Claude session id).");
-      return runtime.openSession({
-        sessionId: handle.sessionId,
-        config: {
-          ...(defaultOpts?.workspace ? { workspace: defaultOpts.workspace } : {}),
-          ...(defaultOpts?.access ? { access: defaultOpts.access } : {}),
-          ...(defaultOpts?.model ? { model: defaultOpts.model } : {}),
-          ...(defaultOpts?.reasoningEffort ? { reasoningEffort: defaultOpts.reasoningEffort } : {}),
-          provider: { resumeSessionId: handle.nativeSessionId } as ClaudeSessionConfig,
-        },
-      });
-    },
   });
 }
 
@@ -204,8 +197,9 @@ function withSessionDefaults<TSessionProvider, TRunProvider>(
     },
     resumeSession: async (handle) => {
       await prepareOnce();
-      if (defaults.resumeSession) return defaults.resumeSession(handle);
-      return runtime.resumeSession(handle);
+      const mergedHandle = mergeSessionHandleWithDefaults(handle, defaults);
+      if (defaults.resumeSession) return defaults.resumeSession(mergedHandle);
+      return runtime.resumeSession(mergedHandle);
     },
     close: () => runtime.close(),
   };

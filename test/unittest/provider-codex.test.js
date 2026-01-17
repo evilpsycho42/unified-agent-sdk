@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CodexRuntime } from "@unified-agent-sdk/provider-codex";
-import { SessionBusyError } from "@unified-agent-sdk/runtime-core";
+import { SessionBusyError, UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY } from "@unified-agent-sdk/runtime-core";
 
 class FakeThread {
   constructor(makeEvents) {
@@ -47,6 +47,26 @@ class CapturingCodex {
   }
 }
 
+class CapturingCodexWithResume {
+  constructor(makeEvents) {
+    this.lastStartThreadOptions = null;
+    this.lastResumeThreadOptions = null;
+    this._makeEvents = makeEvents;
+  }
+
+  startThread(options) {
+    this.lastStartThreadOptions = options ?? null;
+    return new FakeThread(this._makeEvents);
+  }
+
+  resumeThread(id, options) {
+    this.lastResumeThreadOptions = options ?? null;
+    const thread = new FakeThread(this._makeEvents);
+    thread._id = id;
+    return thread;
+  }
+}
+
 test("CodexSession.cancel(runId) aborts the run and reports cancelled", async () => {
   const runtime = new CodexRuntime({
     codex: new FakeCodex(async function* (_thread, _input, turnOptions) {
@@ -75,6 +95,80 @@ test("CodexSession.cancel(runId) aborts the run and reports cancelled", async ()
   assert.equal(done.status, "cancelled");
 });
 
+test("Codex adapter mirrors an already-aborted RunConfig.signal into the internal AbortController", async () => {
+  let sawAborted = false;
+  let sawReason;
+
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (_thread, _input, turnOptions) {
+      sawAborted = Boolean(turnOptions.signal?.aborted);
+      sawReason = turnOptions.signal?.reason;
+    }),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_aborted", config: { workspace: { cwd: process.cwd() } } });
+  const external = new AbortController();
+  external.abort("already");
+
+  const run = await session.run({
+    input: { parts: [{ type: "text", text: "hello" }] },
+    config: { signal: external.signal },
+  });
+
+  let done;
+  for await (const ev of run.events) {
+    if (ev.type === "run.completed") done = ev;
+  }
+
+  assert.equal(sawAborted, true);
+  assert.equal(sawReason, "already");
+  assert.ok(done, "expected run.completed event");
+  assert.equal(done.status, "cancelled");
+});
+
+test("Codex adapter removes external abort listener after run completes", async () => {
+  const listeners = new Set();
+  let addCalls = 0;
+  let removeCalls = 0;
+
+  const signal = {
+    aborted: false,
+    reason: undefined,
+    addEventListener: (type, callback) => {
+      if (type !== "abort") return;
+      addCalls += 1;
+      listeners.add(callback);
+    },
+    removeEventListener: (type, callback) => {
+      if (type !== "abort") return;
+      removeCalls += 1;
+      listeners.delete(callback);
+    },
+  };
+
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (thread) {
+      thread._id = "t_listener_cleanup";
+      yield { type: "thread.started", thread_id: "t_listener_cleanup" };
+      yield { type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 } };
+    }),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_listener_cleanup", config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hi" }] }, config: { signal } });
+
+  for await (const _ev of run.events) {
+    // drain
+  }
+
+  const done = await run.result;
+  assert.equal(done.status, "success");
+
+  assert.equal(addCalls, 1);
+  assert.equal(removeCalls, 1);
+  assert.equal(listeners.size, 0);
+});
+
 test("Codex adapter resolves run.result even when events are not consumed", async () => {
   const runtime = new CodexRuntime({
     codex: new FakeCodex(async function* (thread) {
@@ -92,6 +186,32 @@ test("Codex adapter resolves run.result even when events are not consumed", asyn
   assert.equal(done.type, "run.completed");
   assert.equal(done.status, "success");
   assert.equal((await session.status()).state, "idle");
+});
+
+test("Codex adapter defaults cached_input_tokens to 0 and excludes cache tokens from total_tokens", async () => {
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (thread) {
+      thread._id = "t_usage";
+      yield { type: "thread.started", thread_id: "t_usage" };
+      yield { type: "turn.completed", usage: { input_tokens: 2, output_tokens: 3 } };
+    }),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_usage", config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+
+  let done;
+  for await (const ev of run.events) {
+    if (ev.type === "run.completed") done = ev;
+  }
+
+  assert.ok(done, "expected run.completed event");
+  assert.equal(done.status, "success");
+  assert.equal(done.usage.input_tokens, 2);
+  assert.equal(done.usage.output_tokens, 3);
+  assert.equal(done.usage.cache_read_tokens, 0);
+  assert.equal(done.usage.total_tokens, 5);
+  assert.ok(Number.isFinite(done.usage.total_tokens));
 });
 
 test("CodexSession.run rejects concurrent runs (SessionBusyError)", async () => {
@@ -318,4 +438,45 @@ test("Codex adapter maps unified SessionConfig.reasoningEffort into ThreadOption
       assert.equal(codex.lastThreadOptions.modelReasoningEffort, c.expected);
     });
   }
+});
+
+test("Codex resumeSession restores unified session config from snapshot metadata", async () => {
+  const makeEvents = async function* (thread) {
+    thread._id = "t_resume";
+    yield { type: "thread.started", thread_id: "t_resume" };
+    yield { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } };
+  };
+
+  const codex = new CapturingCodexWithResume(makeEvents);
+  const runtime = new CodexRuntime({ codex });
+
+  const session = await runtime.openSession({
+    sessionId: "s_resume",
+    config: {
+      workspace: { cwd: "/repo", additionalDirs: ["/extra"] },
+      access: { auto: "low", network: false, webSearch: false },
+      model: "gpt-5",
+      reasoningEffort: "high",
+    },
+  });
+
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+  for await (const _ev of run.events) {
+    // drain
+  }
+
+  const handle = await session.snapshot();
+  assert.equal(handle.nativeSessionId, "t_resume");
+  assert.ok(handle.metadata?.[UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY], "expected unified metadata entry");
+
+  await runtime.resumeSession(handle);
+  assert.ok(codex.lastResumeThreadOptions, "expected resumeThread to receive options");
+  assert.equal(codex.lastResumeThreadOptions.workingDirectory, "/repo");
+  assert.deepEqual(codex.lastResumeThreadOptions.additionalDirectories, ["/extra"]);
+  assert.equal(codex.lastResumeThreadOptions.model, "gpt-5");
+  assert.equal(codex.lastResumeThreadOptions.modelReasoningEffort, "high");
+  assert.equal(codex.lastResumeThreadOptions.sandboxMode, "read-only");
+  assert.equal(codex.lastResumeThreadOptions.networkAccessEnabled, false);
+  assert.equal(codex.lastResumeThreadOptions.webSearchEnabled, false);
+  assert.equal(codex.lastResumeThreadOptions.approvalPolicy, "never");
 });

@@ -21,7 +21,7 @@ The orchestrator should generally depend on the unified interfaces (`UnifiedAgen
 | Reasoning effort (portable) | `SessionConfig.reasoningEffort` (mapped) | `SessionConfig.reasoningEffort` (mapped) |
 | Structured output (`RunConfig.outputSchema`) | `Options.outputFormat = { type: "json_schema", schema }` | forwarded as `turnOptions.outputSchema` |
 | Cancellation (`RunConfig.signal`) | mirrored into Claude `abortController` | mirrored into `turnOptions.signal` |
-| Resume support | `resumeSession(handle.nativeSessionId)` | `resumeSession(handle.nativeSessionId)` |
+| Resume support | `resumeSession(handle)` (reads `handle.nativeSessionId`) | `resumeSession(handle)` (reads `handle.nativeSessionId`) |
 
 ## Unified config reference (portable)
 
@@ -90,6 +90,12 @@ Some provider SDK options are deliberately **owned by unified config** and there
 | Codex | `workingDirectory`, `additionalDirectories`, `model`, `modelReasoningEffort` | `SessionConfig.workspace`, `SessionConfig.model`, `SessionConfig.reasoningEffort` |
 
 If you’re looking for an orchestrator-friendly constructor, see [Orchestrator](orchestrator.md) and `createRuntime()` in `@unified-agent-sdk/runtime`.
+
+## Snapshot / resume semantics
+
+- `UnifiedSession.snapshot()` returns a `SessionHandle` containing a provider-native session id (`nativeSessionId`) and optional `metadata`.
+- Provider adapters in this repo include a reserved `SessionHandle.metadata` entry (`UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY`) so `resumeSession(handle)` can restore unified knobs (`workspace`, `access`, `model`, `reasoningEffort`) without losing configuration.
+- If that metadata is missing, `resumeSession(handle)` falls back to runtime defaults (for example `createRuntime({ defaultOpts: ... })`).
 
 ### Codex permission mapping note
 

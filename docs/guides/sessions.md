@@ -48,3 +48,7 @@ If the provider supports it (`capabilities().sessionResume === true`), you can s
 const handle = await session.snapshot();
 const resumed = await runtime.resumeSession(handle);
 ```
+
+Notes:
+- Persist the entire `SessionHandle` (including `metadata`) for lossless resume.
+- Provider adapters in this repo store unified session config under `UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY` so `resumeSession(handle)` can restore `workspace` / `access` / `model` / `reasoningEffort`.

@@ -26,6 +26,17 @@ Source of truth:
 
 Note: `auto="high"` is intended to mean “no restraints”; provider adapters may treat `network`/`webSearch` as effectively enabled in this mode.
 
+## Provider differences (important)
+
+These settings are **portable intent**, not a guarantee of identical enforcement:
+
+- **Codex** primarily relies on Codex CLI sandboxing (`ThreadOptions.sandboxMode`) to constrain writes/execution scope.
+- **Claude** primarily relies on tool allow/deny + `canUseTool` gating; its “sandbox” is not the same primitive as Codex’s sandbox modes.
+
+Practical implications:
+- In `auto="medium"`, both adapters aim to keep execution constrained, but the mechanism differs (sandbox vs gating) and edge cases differ.
+- Workspace scoping is best-effort in providers that don’t enforce a strict OS-level sandbox; treat access controls as defense-in-depth, not a security boundary.
+
 ## Codex
 
 Codex enforcement is primarily driven by `ThreadOptions.sandboxMode` + `ThreadOptions.approvalPolicy`.
