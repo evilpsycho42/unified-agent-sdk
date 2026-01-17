@@ -60,6 +60,6 @@ await runtime.close();
 | Codex | `CodexSessionConfig` | `never` (not supported) |
 
 Notes:
-- `UnifiedSession.run()` starts immediately; `RunHandle.result` settles even if you don't consume `RunHandle.events` (see `docs/testing.md`).
+- `UnifiedSession.run()` starts immediately; `RunHandle.result` settles even if you don't consume `RunHandle.events` (see [Testing](../specs/testing.md)).
 - `RunHandle.events` is a single-consumer stream; consume it promptly for streaming output/telemetry.
 - A `UnifiedSession` supports one active `run()` at a time; concurrent calls throw `SessionBusyError` (queue/schedule in your orchestrator).

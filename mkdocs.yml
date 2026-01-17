@@ -23,13 +23,22 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Config: config.md
-  - Orchestrator: orchestrator.md
-  - Interactive: interactive.md
-  - Testing: testing.md
-  - Permission: permission.md
-  - Event Mapping: event-mapping.md
+  - Getting Started: getting-started.md
+  - Guides:
+      - Configuration: guides/config.md
+      - Orchestrator: guides/orchestrator.md
+      - Interactive Runner: guides/interactive.md
+      - Sessions: guides/sessions.md
+      - Events: guides/events.md
+      - Structured Output: guides/structured-output.md
   - Providers:
-      - Claude: claude.md
-      - Codex: codex.md
-  - ACP: acp.md
+      - Codex: providers/codex.md
+      - Claude: providers/claude.md
+  - Reference:
+      - Packages: reference/packages.md
+  - Specs:
+      - Testing: specs/testing.md
+      - Permission Mapping: specs/permission.md
+      - Event Mapping: specs/event-mapping.md
+      - ACP: specs/acp.md
+      - Contributing: specs/contributing.md

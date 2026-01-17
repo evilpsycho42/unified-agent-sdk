@@ -103,7 +103,7 @@ await runtime.openSession({
 });
 ```
 
-Mapping details are documented in `docs/config.md` under “Unified reasoning config”.
+Mapping details are documented in [Configuration](../guides/config.md) under “Unified reasoning config”.
 
 Note: If you are using the Anthropic **Messages API** directly (not the Claude Agent SDK / Claude Code), “extended thinking” is configured via the `thinking` request parameter rather than `maxThinkingTokens`.
 

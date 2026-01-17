@@ -89,7 +89,7 @@ Some provider SDK options are deliberately **owned by unified config** and there
 | Claude | `cwd`, `additionalDirectories`, `model`, `resume`, `abortController`, `maxThinkingTokens` | `SessionConfig.workspace`, `SessionConfig.model`, `SessionConfig.reasoningEffort`, `resumeSession()`, `RunConfig.signal` |
 | Codex | `workingDirectory`, `additionalDirectories`, `model`, `modelReasoningEffort` | `SessionConfig.workspace`, `SessionConfig.model`, `SessionConfig.reasoningEffort` |
 
-If you’re looking for an orchestrator-friendly constructor, see `docs/orchestrator.md` and `createRuntime()` in `@unified-agent-sdk/runtime`.
+If you’re looking for an orchestrator-friendly constructor, see [Orchestrator](orchestrator.md) and `createRuntime()` in `@unified-agent-sdk/runtime`.
 
 ### Codex permission mapping note
 
