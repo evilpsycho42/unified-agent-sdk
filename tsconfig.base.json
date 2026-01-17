@@ -17,6 +17,7 @@
     "paths": {
       "@unified-agent-sdk/runtime": ["packages/runtime/src/index.ts"],
       "@unified-agent-sdk/runtime-core": ["packages/runtime-core/src/index.ts"],
+      "@unified-agent-sdk/runtime-core/internal": ["packages/runtime-core/src/internal.ts"],
       "@unified-agent-sdk/provider-claude": ["packages/provider-claude/src/index.ts"],
       "@unified-agent-sdk/provider-codex": ["packages/provider-codex/src/index.ts"]
     }

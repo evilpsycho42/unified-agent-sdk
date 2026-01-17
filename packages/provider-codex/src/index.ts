@@ -16,60 +16,9 @@ import type {
   WorkspaceConfig,
 } from "@unified-agent-sdk/runtime-core";
 import { asText, SessionBusyError } from "@unified-agent-sdk/runtime-core";
+import { AsyncEventStream, normalizeStructuredOutputSchema } from "@unified-agent-sdk/runtime-core/internal";
 
 export const PROVIDER_CODEX_SDK = "@openai/codex-sdk" as ProviderId;
-
-class AsyncEventStream<T> implements AsyncIterable<T> {
-  private readonly maxBuffer: number;
-  private readonly buffer: T[] = [];
-  private readonly pending: Array<(result: IteratorResult<T, void>) => void> = [];
-  private closed = false;
-  private iteratorCreated = false;
-
-  constructor(opts?: { maxBuffer?: number }) {
-    this.maxBuffer = opts?.maxBuffer ?? 2048;
-  }
-
-  push(value: T): void {
-    if (this.closed) return;
-    const resolve = this.pending.shift();
-    if (resolve) {
-      resolve({ value, done: false });
-      return;
-    }
-    this.buffer.push(value);
-    if (this.buffer.length > this.maxBuffer) this.buffer.shift();
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    while (this.pending.length) {
-      const resolve = this.pending.shift();
-      if (resolve) resolve({ value: undefined, done: true });
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T, void, void> {
-    if (this.iteratorCreated) {
-      throw new Error("RunHandle.events can only be consumed once.");
-    }
-    this.iteratorCreated = true;
-
-    return {
-      next: async () => {
-        if (this.buffer.length) return { value: this.buffer.shift() as T, done: false };
-        if (this.closed) return { value: undefined, done: true };
-        return await new Promise<IteratorResult<T, void>>((resolve) => this.pending.push(resolve));
-      },
-      return: async () => {
-        this.buffer.length = 0;
-        this.close();
-        return { value: undefined, done: true };
-      },
-    };
-  }
-}
 
 type UnifiedOwnedCodexKeys = "workingDirectory" | "additionalDirectories" | "model";
 export type CodexSessionConfig = Omit<ThreadOptions, UnifiedOwnedCodexKeys>;
@@ -180,11 +129,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
   }
 
   async run(req: RunRequest<never>): Promise<RunHandle> {
-	    if (this.activeRunId) throw new SessionBusyError(this.activeRunId);
-	    const runId = randomUUID() as UUID;
-	    this.lastAgentTextByItemId.clear();
-	    this.lastReasoningTextByItemId.clear();
-	    this.seenToolCallIds.clear();
+    if (this.activeRunId) throw new SessionBusyError(this.activeRunId);
+    const runId = randomUUID() as UUID;
+    this.lastAgentTextByItemId.clear();
+    this.lastReasoningTextByItemId.clear();
+    this.seenToolCallIds.clear();
 
     const { input, images } = normalizeRunInput(req);
     const abortController = new AbortController();
@@ -262,11 +211,11 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
     unwrapStructuredOutput: (value: unknown) => unknown,
     resolveResult: (value: Extract<RuntimeEvent, { type: "run.completed" }>) => void,
     abortController: AbortController,
-	  ): AsyncGenerator<RuntimeEvent> {
-	    const startedAt = Date.now();
-	    let finalText: string | undefined;
-	    let reasoningText: string | undefined;
-	    let completed = false;
+  ): AsyncGenerator<RuntimeEvent> {
+    const startedAt = Date.now();
+    let finalText: string | undefined;
+    let reasoningText: string | undefined;
+    let completed = false;
 
     try {
       yield {
@@ -285,51 +234,51 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
           ]
         : input;
 
-	      const streamed = await this.thread.runStreamed(codexInput, turnOptions);
-	      for await (const ev of streamed.events) {
-	        yield* this.mapEvent(runId, ev, {
-	          setFinalText: (t) => {
-	            finalText = t;
-	          },
-	          setReasoningText: (t) => {
-	            reasoningText = t;
-	          },
-	        });
+      const streamed = await this.thread.runStreamed(codexInput, turnOptions);
+      for await (const ev of streamed.events) {
+        yield* this.mapEvent(runId, ev, {
+          setFinalText: (t) => {
+            finalText = t;
+          },
+          setReasoningText: (t) => {
+            reasoningText = t;
+          },
+        });
 
         if (ev.type === "thread.started") {
           this.nativeSessionId = ev.thread_id;
         }
 
-	        if (ev.type === "turn.completed") {
-	          const inputTokens = ev.usage.input_tokens;
-	          const cacheReadTokens = ev.usage.cached_input_tokens;
-	          const outputTokens = ev.usage.output_tokens;
-	          const u = {
-	            input_tokens: inputTokens,
-	            cache_read_tokens: cacheReadTokens,
-	            cache_write_tokens: 0,
-	            output_tokens: outputTokens,
-	            total_tokens: inputTokens + cacheReadTokens + outputTokens,
-	            duration_ms: Date.now() - startedAt,
-	            raw: ev.usage,
-	          };
-	          const parsed = turnOptions.outputSchema && typeof finalText === "string" ? tryParseJson(finalText) : undefined;
-	          const structuredOutput = parsed === undefined ? undefined : unwrapStructuredOutput(parsed);
-	          const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
-	            type: "run.completed",
-	            atMs: Date.now(),
-	            runId,
-	            status: "success",
-	            finalText,
-	            structuredOutput,
-	            usage: u,
-	            raw: { ...(ev as any), reasoningText },
-	          };
-	          completed = true;
-	          yield done;
-	          resolveResult(done);
-	          break;
-	        }
+        if (ev.type === "turn.completed") {
+          const inputTokens = ev.usage.input_tokens;
+          const cacheReadTokens = ev.usage.cached_input_tokens;
+          const outputTokens = ev.usage.output_tokens;
+          const u = {
+            input_tokens: inputTokens,
+            cache_read_tokens: cacheReadTokens,
+            cache_write_tokens: 0,
+            output_tokens: outputTokens,
+            total_tokens: inputTokens + cacheReadTokens + outputTokens,
+            duration_ms: Date.now() - startedAt,
+            raw: ev.usage,
+          };
+          const parsed = turnOptions.outputSchema && typeof finalText === "string" ? tryParseJson(finalText) : undefined;
+          const structuredOutput = parsed === undefined ? undefined : unwrapStructuredOutput(parsed);
+          const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
+            type: "run.completed",
+            atMs: Date.now(),
+            runId,
+            status: "success",
+            finalText,
+            structuredOutput,
+            usage: u,
+            raw: { ...(ev as any), reasoningText },
+          };
+          completed = true;
+          yield done;
+          resolveResult(done);
+          break;
+        }
 
         if (ev.type === "turn.failed") {
           const done: Extract<RuntimeEvent, { type: "run.completed" }> = {
@@ -723,37 +672,4 @@ function tryParseJson(text: string): unknown | undefined {
   } catch {
     return undefined;
   }
-}
-
-function normalizeStructuredOutputSchema(
-  schema: Record<string, unknown> | undefined,
-): { schemaForProvider: Record<string, unknown> | undefined; unwrapStructuredOutput: (value: unknown) => unknown } {
-  if (!schema) {
-    return { schemaForProvider: schema, unwrapStructuredOutput: (value) => value };
-  }
-
-  // OpenAI-style structured outputs are most reliable when the schema root is an object.
-  // If the user asks for a non-object root (e.g. a top-level array), wrap it so providers
-  // can enforce a single JSON object response and then unwrap it back to the requested shape.
-  const rootType = (schema as { type?: unknown }).type;
-  if (rootType === "object") {
-    return { schemaForProvider: schema, unwrapStructuredOutput: (value) => value };
-  }
-
-  const wrapped = {
-    type: "object",
-    properties: { value: schema },
-    required: ["value"],
-    additionalProperties: false,
-  };
-
-  return {
-    schemaForProvider: wrapped,
-    unwrapStructuredOutput: (value) => {
-      if (value && typeof value === "object" && !Array.isArray(value) && "value" in value) {
-        return (value as { value?: unknown }).value;
-      }
-      return value;
-    },
-  };
 }

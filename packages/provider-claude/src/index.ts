@@ -25,60 +25,9 @@ import type {
   WorkspaceConfig,
 } from "@unified-agent-sdk/runtime-core";
 import { asText, SessionBusyError } from "@unified-agent-sdk/runtime-core";
+import { AsyncEventStream, normalizeStructuredOutputSchema } from "@unified-agent-sdk/runtime-core/internal";
 
 export const PROVIDER_CLAUDE_AGENT_SDK = "@anthropic-ai/claude-agent-sdk" as ProviderId;
-
-class AsyncEventStream<T> implements AsyncIterable<T> {
-  private readonly maxBuffer: number;
-  private readonly buffer: T[] = [];
-  private readonly pending: Array<(result: IteratorResult<T, void>) => void> = [];
-  private closed = false;
-  private iteratorCreated = false;
-
-  constructor(opts?: { maxBuffer?: number }) {
-    this.maxBuffer = opts?.maxBuffer ?? 2048;
-  }
-
-  push(value: T): void {
-    if (this.closed) return;
-    const resolve = this.pending.shift();
-    if (resolve) {
-      resolve({ value, done: false });
-      return;
-    }
-    this.buffer.push(value);
-    if (this.buffer.length > this.maxBuffer) this.buffer.shift();
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    while (this.pending.length) {
-      const resolve = this.pending.shift();
-      if (resolve) resolve({ value: undefined, done: true });
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T, void, void> {
-    if (this.iteratorCreated) {
-      throw new Error("RunHandle.events can only be consumed once.");
-    }
-    this.iteratorCreated = true;
-
-    return {
-      next: async () => {
-        if (this.buffer.length) return { value: this.buffer.shift() as T, done: false };
-        if (this.closed) return { value: undefined, done: true };
-        return await new Promise<IteratorResult<T, void>>((resolve) => this.pending.push(resolve));
-      },
-      return: async () => {
-        this.buffer.length = 0;
-        this.close();
-        return { value: undefined, done: true };
-      },
-    };
-  }
-}
 
 type UnifiedOwnedClaudeOptionKeys = "cwd" | "additionalDirectories" | "resume" | "abortController" | "model";
 
@@ -874,37 +823,5 @@ function extractClaudeTokenUsage(usage: unknown): {
     cache_write_tokens: cacheWriteTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens,
-  };
-}
-
-function normalizeStructuredOutputSchema(
-  schema: Record<string, unknown> | undefined,
-): { schemaForProvider: Record<string, unknown> | undefined; unwrapStructuredOutput: (value: unknown) => unknown } {
-  if (!schema) {
-    return { schemaForProvider: schema, unwrapStructuredOutput: (value) => value };
-  }
-
-  // Claude Code's `--json-schema` is most reliable when the schema root is an object.
-  // Wrap non-object roots (like top-level arrays) and unwrap results back to the requested shape.
-  const rootType = (schema as { type?: unknown }).type;
-  if (rootType === "object") {
-    return { schemaForProvider: schema, unwrapStructuredOutput: (value) => value };
-  }
-
-  const wrapped = {
-    type: "object",
-    properties: { value: schema },
-    required: ["value"],
-    additionalProperties: false,
-  };
-
-  return {
-    schemaForProvider: wrapped,
-    unwrapStructuredOutput: (value) => {
-      if (value && typeof value === "object" && !Array.isArray(value) && "value" in value) {
-        return (value as { value?: unknown }).value;
-      }
-      return value;
-    },
   };
 }

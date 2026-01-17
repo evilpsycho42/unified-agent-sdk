@@ -27,7 +27,7 @@ import { createRuntime, SessionBusyError } from "@unified-agent-sdk/runtime";
 const runtime = createRuntime({
   provider: "@openai/codex-sdk", // or "@anthropic-ai/claude-agent-sdk"
   home: null, // inherit ~/.codex or ~/.claude (unless env overrides it)
-  default_opts: { model: "gpt-5" },
+  defaultOpts: { model: "gpt-5" },
 });
 
 const session = await runtime.openSession({

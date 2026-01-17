@@ -25,16 +25,16 @@ Legend:
 
 ## Provider-native “reasoning” / “plan”
 
-These are important in modern agent UX, but are not currently part of the unified event contract:
+These are important in modern agent UX. Today:
+- **Reasoning/thinking is part of the unified event contract** via `assistant.reasoning.delta` and `assistant.reasoning.message` (support quality varies by provider).
+- **Plan/todo updates are not yet first-class** in the unified contract (Codex has `todo_list`; Claude has model/tooling-dependent plan representations).
 
 - Codex SDK has explicit item types:
   - `ThreadItem.type="reasoning"` (reasoning summary)
   - `ThreadItem.type="todo_list"` (plan/todo list, can update during the turn)
-- Claude Agent SDK can expose “thinking”/reasoning as typed content blocks in the streaming protocol, but our adapter currently only extracts text deltas (`text_delta`).
 - Claude Agent SDK can expose “thinking”/reasoning as typed content blocks in the streaming protocol; mapping requires parsing those block/delta types (which can vary by model/settings).
 
 Recommended direction (future):
 - Extend the unified event model with a first-class representation for:
-  - reasoning/thinking output
   - plan/todo updates
 so TUIs can render these without relying on `provider.event`.
