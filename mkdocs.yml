@@ -6,6 +6,7 @@ repo_name: kky42/unified-agent-sdk
 edit_uri: edit/main/docs/
 
 docs_dir: docs
+exclude_docs: README.md
 
 theme:
   name: material
