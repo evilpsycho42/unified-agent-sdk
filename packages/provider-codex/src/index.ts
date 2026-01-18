@@ -22,6 +22,7 @@ import { SessionBusyError, UNIFIED_AGENT_SDK_SESSION_HANDLE_METADATA_KEY } from 
 import { AsyncEventStream, normalizeStructuredOutputSchema } from "@unified-agent-sdk/runtime-core/internal";
 
 export const PROVIDER_CODEX_SDK = "@openai/codex-sdk" as ProviderId;
+const CODEX_WORKSPACE_PATCH_APPLIED_TOOL_NAME = "WorkspacePatchApplied";
 
 type UnifiedOwnedCodexKeys = "workingDirectory" | "additionalDirectories" | "model" | "modelReasoningEffort";
 export type CodexSessionConfig = Omit<ThreadOptions, UnifiedOwnedCodexKeys>;
@@ -529,6 +530,26 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
       }
 
       if (item.type === "file_change") {
+        if (!this.seenToolCallIds.has(item.id)) {
+          this.seenToolCallIds.add(item.id);
+          yield {
+            type: "tool.call",
+            atMs: Date.now(),
+            runId,
+            callId: item.id as UUID,
+            toolName: CODEX_WORKSPACE_PATCH_APPLIED_TOOL_NAME,
+            input: { changes: item.changes },
+            raw: ev,
+          };
+        }
+        yield {
+          type: "tool.result",
+          atMs: Date.now(),
+          runId,
+          callId: item.id as UUID,
+          output: { status: item.status, changes: item.changes },
+          raw: ev,
+        };
         if (item.status === "failed") {
           yield { type: "error", atMs: Date.now(), runId, message: "Codex file change patch failed.", raw: ev };
         }

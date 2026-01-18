@@ -383,6 +383,7 @@ async function runInteractiveTurn(
   let printedAnswer = false;
   let lastToolName: string | null = null;
   let block: "tools" | "reasoning" | "answer" | null = null;
+  let printedReasoningMarker = false;
   const toolNameByCallId = new Map<string, string>();
 
   const write = (text: string) => {
@@ -528,6 +529,14 @@ async function runInteractiveTurn(
 
     if (event.type === "assistant.reasoning.delta") {
       // Intentionally suppress reasoning text in the TUI.
+      if (!printedReasoningMarker) {
+        const prevBlock = block as "tools" | "reasoning" | "answer" | null;
+        if (prevBlock === "tools" && !atLineStart) write("\n");
+        block = "reasoning";
+        lastToolName = null;
+        printedReasoningMarker = true;
+        printReasoningMarker();
+      }
       continue;
     }
 
@@ -537,6 +546,7 @@ async function runInteractiveTurn(
     }
 
     if (event.type === "assistant.reasoning.message") {
+      if (printedReasoningMarker) continue;
       // Treat each reasoning message as a distinct reasoning block, but do not show its contents.
       const prevBlock = block as "tools" | "reasoning" | "answer" | null;
       if (prevBlock === "tools" && !atLineStart) write("\n");
@@ -544,6 +554,7 @@ async function runInteractiveTurn(
       lastToolName = null;
       // Only print once per contiguous reasoning phase (similar grouping logic to tools).
       if (prevBlock !== "reasoning") printReasoningMarker();
+      printedReasoningMarker = true;
       continue;
     }
 

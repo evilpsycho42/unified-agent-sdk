@@ -188,6 +188,39 @@ test("Codex adapter resolves run.result even when events are not consumed", asyn
   assert.equal((await session.status()).state, "idle");
 });
 
+test("Codex adapter maps file_change to tool.call/tool.result (WorkspacePatchApplied)", async () => {
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* () {
+      yield { type: "thread.started", thread_id: "t_file_change" };
+      yield { type: "turn.started" };
+      yield {
+        type: "item.completed",
+        item: {
+          id: "fc_1",
+          type: "file_change",
+          changes: [{ path: "src/example.ts", kind: "update" }],
+          status: "completed",
+        },
+      };
+      yield { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } };
+    }),
+  });
+
+  const session = await runtime.openSession({ sessionId: "s_file_change", config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+
+  const events = [];
+  for await (const ev of run.events) events.push(ev);
+
+  const call = events.find((e) => e.type === "tool.call" && e.toolName === "WorkspacePatchApplied");
+  assert.ok(call, "expected tool.call WorkspacePatchApplied");
+  assert.deepEqual(call.input, { changes: [{ path: "src/example.ts", kind: "update" }] });
+
+  const result = events.find((e) => e.type === "tool.result" && e.callId === call.callId);
+  assert.ok(result, "expected tool.result WorkspacePatchApplied");
+  assert.deepEqual(result.output, { status: "completed", changes: [{ path: "src/example.ts", kind: "update" }] });
+});
+
 test("Codex adapter defaults cached_input_tokens to 0 and excludes cache tokens from total_tokens", async () => {
   const runtime = new CodexRuntime({
     codex: new FakeCodex(async function* (thread) {
