@@ -29,6 +29,7 @@ node packages/uagent/bin/uagent.js claude --workspace . --home ~/.claude
 Pass the workspace root (defaults to `cwd`) and a provider home directory:
 - `--workspace .` (repo root)
 - `--home ~/.codex` or `--home ~/.claude` (provider config + session state)
+  - The home directory must already exist; `uagent` will not create it.
 
 You can also include additional workspace roots (repeat the flag):
 

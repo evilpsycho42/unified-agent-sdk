@@ -5,12 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createRuntime } from "@unified-agent-sdk/runtime";
-import { loadDotEnv } from "../helpers/load-env.mjs";
-
-loadDotEnv();
-
-const codexApiKey = process.env.CODEX_API_KEY ?? process.env.OPENAI_API_KEY;
-assert.ok(codexApiKey, "Codex integration tests require CODEX_API_KEY or OPENAI_API_KEY.");
+const codexHome = join(os.homedir(), ".codex");
 
 test(
   "Codex integration: run completes",
@@ -22,15 +17,11 @@ test(
 
 		    const runtime = createRuntime({
 		      provider: "@openai/codex-sdk",
-		      home: join(base, "codex"),
-		      env: {
-		        CODEX_API_KEY: codexApiKey,
-		        OPENAI_BASE_URL: process.env.CODEX_BASE_URL,
-		      },
-			      defaultOpts: {
-			        workspace: { cwd: workspaceDir },
-			        access: { auto: "low", network: false, webSearch: false },
-			        model: process.env.CODEX_MODEL,
+		      home: codexHome,
+		      defaultOpts: {
+		        workspace: { cwd: workspaceDir },
+		        access: { auto: "low", network: false, webSearch: false },
+		        model: process.env.CODEX_MODEL,
 			      },
 			    });
 
@@ -75,15 +66,11 @@ test(
 
 		    const runtime = createRuntime({
 		      provider: "@openai/codex-sdk",
-		      home: join(base, "codex"),
-		      env: {
-		        CODEX_API_KEY: codexApiKey,
-		        OPENAI_BASE_URL: process.env.CODEX_BASE_URL,
-		      },
-			      defaultOpts: {
-			        workspace: { cwd: workspaceDir },
-			        access: { auto: "low", network: false, webSearch: false },
-			        model: process.env.CODEX_MODEL,
+		      home: codexHome,
+		      defaultOpts: {
+		        workspace: { cwd: workspaceDir },
+		        access: { auto: "low", network: false, webSearch: false },
+		        model: process.env.CODEX_MODEL,
 			      },
 			    });
 
@@ -158,15 +145,11 @@ test(
 
 		    const runtime = createRuntime({
 		      provider: "@openai/codex-sdk",
-		      home: join(base, "codex"),
-		      env: {
-		        CODEX_API_KEY: codexApiKey,
-		        OPENAI_BASE_URL: process.env.CODEX_BASE_URL,
-		      },
-			      defaultOpts: {
-			        workspace: { cwd: workspaceDir },
-			        access: { auto: "low", network: false, webSearch: false },
-			        model: process.env.CODEX_MODEL,
+		      home: codexHome,
+		      defaultOpts: {
+		        workspace: { cwd: workspaceDir },
+		        access: { auto: "low", network: false, webSearch: false },
+		        model: process.env.CODEX_MODEL,
 			      },
 			    });
 

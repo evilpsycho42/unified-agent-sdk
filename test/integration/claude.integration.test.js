@@ -5,12 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createRuntime } from "@unified-agent-sdk/runtime";
-import { loadDotEnv } from "../helpers/load-env.mjs";
-
-loadDotEnv();
-
-const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN;
-assert.ok(anthropicApiKey, "Claude integration tests require ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.");
+const claudeHome = join(os.homedir(), ".claude");
 
 test(
   "Claude integration: run completes",
@@ -20,13 +15,13 @@ test(
 	    const workspaceDir = join(base, "workspace");
 	    await mkdir(workspaceDir, { recursive: true });
 
-		    const runtime = createRuntime({
-		      provider: "@anthropic-ai/claude-agent-sdk",
-		      home: join(base, "claude"),
-		      defaultOpts: {
-		        workspace: { cwd: workspaceDir },
-		        access: { auto: "low", network: false, webSearch: false },
-		        model: process.env.CLAUDE_MODEL,
+	    const runtime = createRuntime({
+	      provider: "@anthropic-ai/claude-agent-sdk",
+	      home: claudeHome,
+	      defaultOpts: {
+	        workspace: { cwd: workspaceDir },
+	        access: { auto: "low", network: false, webSearch: false },
+	        model: process.env.CLAUDE_MODEL,
 		      }
 		    });
 
@@ -70,11 +65,11 @@ test(
 
 	    const runtime = createRuntime({
 	      provider: "@anthropic-ai/claude-agent-sdk",
-	      home: join(base, "claude"),
-		      defaultOpts: {
-		        workspace: { cwd: workspaceDir },
-		        access: { auto: "low", network: false, webSearch: false },
-		        model: process.env.CLAUDE_MODEL,
+	      home: claudeHome,
+	      defaultOpts: {
+	        workspace: { cwd: workspaceDir },
+	        access: { auto: "low", network: false, webSearch: false },
+	        model: process.env.CLAUDE_MODEL,
 		      }
 		    });
 
@@ -156,11 +151,11 @@ test(
 
 	    const runtime = createRuntime({
 	      provider: "@anthropic-ai/claude-agent-sdk",
-	      home: join(base, "claude"),
-		      defaultOpts: {
-		        workspace: { cwd: workspaceDir },
-		        access: { auto: "low", network: false, webSearch: false },
-		        model: process.env.CLAUDE_MODEL,
+	      home: claudeHome,
+	      defaultOpts: {
+	        workspace: { cwd: workspaceDir },
+	        access: { auto: "low", network: false, webSearch: false },
+	        model: process.env.CLAUDE_MODEL,
 		      }
 		    });
 

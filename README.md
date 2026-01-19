@@ -89,6 +89,7 @@ npm install -g @unified-agent-sdk/uagent
 One‑shot exec:
 
 ```sh
+mkdir -p .cache/uagent/codex
 uagent codex exec \
   --home .cache/uagent/codex \
   --workspace . \
@@ -98,6 +99,7 @@ uagent codex exec \
 Interactive mode:
 
 ```sh
+mkdir -p .cache/uagent/claude
 uagent claude \
   --home .cache/uagent/claude \
   --workspace .
@@ -106,6 +108,7 @@ uagent claude \
 Verbose exec (shows tools + reasoning blocks):
 
 ```sh
+mkdir -p .cache/uagent/codex
 uagent codex exec \
   --home .cache/uagent/codex \
   --workspace . \
@@ -187,4 +190,5 @@ Both map into the same runtime and event model.
 **What does `--home` mean?**  
 `--home` points to the provider’s config directory. It lets you keep per‑profile settings
 and auth separate (for example, `.profiles/codex/yescode` or `.profiles/claude/yescode`).
-If omitted, the provider uses its default location (e.g. `~/.codex` or `~/.claude`).
+If omitted, the provider uses its default location (e.g. `~/.codex` or `~/.claude`). The
+directory must already exist; `uagent` will not create it.

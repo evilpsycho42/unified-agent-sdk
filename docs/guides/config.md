@@ -6,6 +6,10 @@ This SDK splits configuration into:
 
 The orchestrator should generally depend on the unified interfaces (`UnifiedAgentRuntime` / `UnifiedSession`) and only decide *which provider runtime to construct* at the composition root.
 
+## Runtime home directory
+
+When you pass `home` to `createRuntime()` (or `--home` in `uagent`), the directory **must already exist**. The runtime does not create it for you. This path is wired to the provider’s config directory (`CODEX_HOME` or `CLAUDE_CONFIG_DIR`).
+
 ## Quick comparison (Claude vs Codex)
 
 | Concern | Claude (`@unified-agent-sdk/provider-claude`) | Codex (`@unified-agent-sdk/provider-codex`) |

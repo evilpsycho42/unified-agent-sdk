@@ -22,6 +22,7 @@ Then choose the concrete provider runtime at the composition root.
 
 `createRuntime()` is intentionally thin:
 - Provider auth/endpoint/home is configured via `home` + `env` (so CLI users can reuse `~/.codex` / `~/.claude`).
+- If `home` is provided, the directory must already exist; the runtime will not create it.
 - Unified knobs (like `reasoningEffort`) live on `openSession({ config: { ... } })` (or `createRuntime({ defaultOpts: ... })`).
 - For Claude, `createRuntime()` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` by default for more reliable non-interactive runs (override via `env`).
 

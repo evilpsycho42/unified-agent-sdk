@@ -35,21 +35,21 @@ Provider SDKs are regular dependencies now. A repo-root `npm install` will pull 
 npm run test:smoke
 ```
 
-Smoke tests load a repo-root `.env` file automatically (if present).
+Smoke tests use your local CLI auth state (by default `~/.claude` and `~/.codex`). Ensure you are logged in for both providers before running.
 
 ## Integration tests (real API; opt-in)
 
-Auth env vars:
+Integration tests also rely on local CLI auth state (by default `~/.claude` and `~/.codex`). If you prefer explicit credentials, set the usual provider env vars in your shell before running (they will be picked up by the SDKs):
 - Codex: `CODEX_API_KEY` or `OPENAI_API_KEY` (optional: `CODEX_MODEL`, `CODEX_BASE_URL`).
 - Claude: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (optional: `CLAUDE_MODEL`, `ANTHROPIC_BASE_URL`).
 
-Then:
+Run:
 
 ```sh
 npm run test:integration
 ```
 
-To run a single provider's integration tests, run the file directly (only that provider's credentials are required):
+To run a single provider's integration tests, run the file directly (only that provider's auth state is required):
 
 ```sh
 # Codex only
@@ -93,7 +93,7 @@ OUTSIDE="$BASE/outside"
 mkdir -p "$WORKSPACE" "$OUTSIDE"
 ```
 
-Choose provider + home (examples; adjust paths):
+Choose provider + home (examples; adjust paths). The home directory must already exist:
 
 ```sh
 # Codex

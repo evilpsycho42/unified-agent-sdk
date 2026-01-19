@@ -5,12 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createRuntime } from "@unified-agent-sdk/runtime";
-import { loadDotEnv } from "../helpers/load-env.mjs";
-
-loadDotEnv();
-
-const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN;
-assert.ok(anthropicApiKey, "Claude smoke tests require ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.");
+const claudeHome = join(os.homedir(), ".claude");
 
 test("Claude smoke: run completes", { timeout: 120_000 }, async () => {
   const base = await mkdtemp(join(os.tmpdir(), "unified-agent-sdk-claude-smoke-"));
@@ -19,11 +14,7 @@ test("Claude smoke: run completes", { timeout: 120_000 }, async () => {
 
   const runtime = createRuntime({
     provider: "@anthropic-ai/claude-agent-sdk",
-    home: join(base, "claude"),
-    env: {
-      ANTHROPIC_API_KEY: anthropicApiKey,
-      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-    },
+    home: claudeHome,
     defaultOpts: {
       workspace: { cwd: workspaceDir },
       access: { auto: "medium", network: false, webSearch: false },

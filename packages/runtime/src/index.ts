@@ -14,7 +14,7 @@ export {
   type CodexSessionConfig,
 } from "@unified-agent-sdk/provider-codex";
 
-import { mkdir } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { ClaudeRuntime, type ClaudeRuntimeConfig, type ClaudeSessionConfig } from "@unified-agent-sdk/provider-claude";
@@ -49,6 +49,7 @@ export type CreateCodexRuntimeInit = {
    * Codex config directory.
    * - `null` / omitted: inherit default location (`~/.codex`) or existing `CODEX_HOME`.
    * - string: sets `CODEX_HOME` for the Codex CLI process.
+   *   The directory must already exist.
    */
   home?: string | null;
   /** Extra env vars merged into the provider process environment. */
@@ -63,6 +64,7 @@ export type CreateClaudeRuntimeInit = {
    * Claude Code config directory.
    * - `null` / omitted: inherit default location (`~/.claude`) or existing `CLAUDE_CONFIG_DIR`.
    * - string: sets `CLAUDE_CONFIG_DIR` for the Claude Code process.
+   *   The directory must already exist.
    */
   home?: string | null;
   /** Extra env vars merged into the provider process environment. */
@@ -120,7 +122,7 @@ function createCodexRuntime(init: CreateCodexRuntimeInit): UnifiedAgentRuntime<C
   } satisfies CodexRuntimeConfig);
 
   return withSessionDefaults(runtime, {
-    prepare: typeof home === "string" ? async () => void (await mkdir(home, { recursive: true })) : undefined,
+    prepare: typeof home === "string" ? async () => ensureHomeDirectory(home) : undefined,
     workspace: defaultOpts?.workspace,
     access: defaultOpts?.access,
     model: defaultOpts?.model,
@@ -161,7 +163,7 @@ function createClaudeRuntime(
   } satisfies ClaudeRuntimeConfig);
 
   return withSessionDefaults(runtime, {
-    prepare: typeof home === "string" ? async () => void (await mkdir(home, { recursive: true })) : undefined,
+    prepare: typeof home === "string" ? async () => ensureHomeDirectory(home) : undefined,
     workspace: defaultOpts?.workspace,
     access: defaultOpts?.access,
     model: defaultOpts?.model,
@@ -234,4 +236,16 @@ function ensureNodeInPath(env: Record<string, string | undefined>): void {
   const parts = current.split(sep).filter(Boolean);
   if (parts.includes(nodeDir)) return;
   env[key] = current ? `${nodeDir}${sep}${current}` : nodeDir;
+}
+
+async function ensureHomeDirectory(home: string): Promise<void> {
+  try {
+    const info = await stat(home);
+    if (!info.isDirectory()) throw new Error(`Home path is not a directory: ${home}`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Home directory does not exist: ${home}`);
+    }
+    throw err;
+  }
 }

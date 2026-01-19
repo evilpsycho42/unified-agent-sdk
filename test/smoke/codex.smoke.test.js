@@ -5,12 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createRuntime } from "@unified-agent-sdk/runtime";
-import { loadDotEnv } from "../helpers/load-env.mjs";
-
-loadDotEnv();
-
-const codexApiKey = process.env.CODEX_API_KEY ?? process.env.OPENAI_API_KEY;
-assert.ok(codexApiKey, "Codex smoke tests require CODEX_API_KEY or OPENAI_API_KEY.");
+const codexHome = join(os.homedir(), ".codex");
 
 test("Codex smoke: run completes", { timeout: 120_000 }, async () => {
   const base = await mkdtemp(join(os.tmpdir(), "unified-agent-sdk-codex-smoke-"));
@@ -19,11 +14,7 @@ test("Codex smoke: run completes", { timeout: 120_000 }, async () => {
 
   const runtime = createRuntime({
     provider: "@openai/codex-sdk",
-    home: join(base, "codex"),
-    env: {
-      CODEX_API_KEY: codexApiKey,
-      OPENAI_BASE_URL: process.env.CODEX_BASE_URL,
-    },
+    home: codexHome,
     defaultOpts: {
       workspace: { cwd: workspaceDir },
       access: { auto: "low", network: false, webSearch: false },
