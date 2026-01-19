@@ -52,6 +52,32 @@ Before running manual agent behavior tests (for example `uagent exec` / smoke / 
 - `npm run test:smoke` (real SDK + real API calls; local)
 - `npm run test:integration` (real SDK + real API calls)
 
+## Manual verification with uagent CLI
+
+After making changes to adapters, event mapping, or CLI output, **verify with real API requests** using the `uagent` CLI in verbose mode. This is the most reliable way to confirm functionality works end-to-end.
+
+```bash
+# Build first
+npm run build
+
+# Test with Codex
+./packages/uagent/bin/uagent.js codex exec --verbose "your prompt here"
+
+# Test with Claude
+./packages/uagent/bin/uagent.js claude exec --verbose "your prompt here"
+```
+
+Useful flags for verification:
+- `--verbose`: Show full agent steps (tools, reasoning, streaming output)
+- `--trace`: Print unified runtime events to stderr
+- `--trace-raw`: Print raw provider payloads (very verbose; implies `--trace`)
+- `--reasoning-effort <level>`: Test reasoning output (`none`, `low`, `medium`, `high`, `xhigh`)
+
+Example verification scenarios:
+- **Reasoning output**: Use `--verbose --reasoning-effort high` with a prompt that triggers reasoning
+- **Tool calls**: Use `--verbose` with a prompt that requires file operations or web search
+- **Streaming**: Watch for smooth delta output vs. chunked/delayed text
+
 ## Integration tests (opt-in)
 
 Integration tests make real API calls and may incur cost. Run them explicitly via `npm run test:integration`.
@@ -74,6 +100,7 @@ Note: running the full integration/smoke suites expects both providers to be con
 - Structured output may take multiple turns; use `maxTurns >= 3` for output-schema tests.
 
 ### Codex SDK
+- **No text streaming:** As of v0.80.0–v0.88.0, the Codex CLI does not emit streaming delta events for text content. Reasoning and agent messages appear all at once (only `item.completed` events, no `item.started`/`item.updated`). See `docs/providers/codex.md` for details.
 - For predictable CI runs, prefer conservative thread defaults:
   - `sandboxMode: "read-only"`, `approvalPolicy: "never"`, `webSearchEnabled: false`, `networkAccessEnabled: false`, `skipGitRepoCheck: true`.
 - Set `CODEX_HOME` to a repo-local directory (e.g. `.cache/codex-test`) to avoid writing to the user home directory.

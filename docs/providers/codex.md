@@ -144,6 +144,41 @@ Common approaches:
 
 If you’re embedding Codex via the unified runtime, `createRuntime({ provider: "@openai/codex-sdk", home: "/path" })` sets `CODEX_HOME` for the spawned Codex CLI process. If you’re using `CodexRuntime` directly, set it via `new CodexRuntime({ client: { env: { CODEX_HOME: "..." } } })` (the `env` is passed to the underlying `@openai/codex-sdk` client).
 
+## Streaming behavior
+
+### Current limitation: no text streaming
+
+As of `@openai/codex-sdk` v0.80.0–v0.88.0, **the Codex CLI does not emit streaming delta events for text content**. When using `--json` mode, the CLI outputs:
+
+```jsonl
+{"type":"thread.started","thread_id":"..."}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"full text here"}}
+{"type":"turn.completed","usage":{...}}
+```
+
+Notice there are no `item.started` or `item.updated` events for incremental text streaming. The full text only becomes available when `item.completed` is emitted.
+
+**Impact:** Reasoning and agent message text appear all at once rather than streaming character-by-character. This differs from Claude, which streams text incrementally.
+
+### Adapter infrastructure
+
+This adapter already has infrastructure to handle streaming if/when the Codex SDK supports it:
+
+- `computeAgentDelta()` and `computeReasoningDelta()` track previous text and compute deltas
+- `item.started` and `item.updated` events are handled and would emit `assistant.delta` / `assistant.reasoning.delta` events
+
+When the Codex SDK adds streaming support, this adapter should work automatically.
+
+### Future: streaming events (PR #5546)
+
+[PR #5546](https://github.com/openai/codex/pull/5546) "Add item streaming events" was merged in October 2025, adding:
+- `AgentMessageContentDelta`
+- `ReasoningContentDelta`
+- `ReasoningRawContentDelta`
+
+These events are not yet exposed in the TypeScript SDK types. Monitor [Codex releases](https://github.com/openai/codex/releases) for when this becomes available.
+
 ## Practical tips
 
 - Prefer setting `CODEX_HOME` to a repo-local directory (e.g. `.cache/codex`) to avoid writing to the user home directory.
