@@ -15,6 +15,15 @@ This repo’s Claude adapter (`@unified-agent-sdk/provider-claude`) wraps `@anth
 | Structured output | `run({ config: { outputSchema } })` |
 | Cancellation | `run({ config: { signal } })` |
 
+## Tasks (Claude Code)
+
+Claude Code has two different “task list” concepts:
+
+- **`TodoWrite` tool**: the session-scoped list the model updates during a run. In non-interactive (`--print`) runs (including the Claude Agent SDK), this is what we currently observe in tool events.
+- **Tasks system**: a filesystem-backed task list (stored under `~/.claude/tasks/`) managed via tools like `TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList` in interactive Claude Code.
+
+**Observed behavior (2026-01-23, Claude Code `2.1.17`):** when running via the Claude Agent SDK / `--print`, we do **not** see `TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList` tool calls, and prompts like “create an example task list” only invoke `TodoWrite` (no task list directory is created under `~/.claude/tasks/`).
+
 ## Configuration in this SDK
 
 ### Runtime

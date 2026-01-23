@@ -69,7 +69,10 @@ The SDK emits unified `tool.call` and `tool.result` events. The `toolName` field
 
 Claude tools pass through with their native names. Some tools have different availability depending on the execution context.
 
-#### All Claude native tools
+#### Common Claude native tools
+
+Tool availability is **Claude Code version + execution-context dependent** (interactive vs `--print` / Agent SDK).
+The table below reflects the most common tools we see in non-interactive (`--print`) runs, plus notable interactive-only tools.
 
 | Native Tool | Unified `toolName` | Description | SDK Availability |
 |---|---|---|---|
@@ -85,6 +88,10 @@ Claude tools pass through with their native names. Some tools have different ava
 | TaskOutput | TaskOutput | Check background task output | ✅ Available |
 | KillShell | KillShell | Terminate background shells | ✅ Available |
 | TodoWrite | TodoWrite | Task list management | ✅ Available |
+| TaskCreate | TaskCreate | Create a filesystem-backed task | ⚠️ Interactive Claude Code only (not observed in `--print` / Agent SDK) |
+| TaskUpdate | TaskUpdate | Update a filesystem-backed task | ⚠️ Interactive Claude Code only (not observed in `--print` / Agent SDK) |
+| TaskGet | TaskGet | Get a filesystem-backed task by id | ⚠️ Interactive Claude Code only (not observed in `--print` / Agent SDK) |
+| TaskList | TaskList | List filesystem-backed tasks | ⚠️ Interactive Claude Code only (not observed in `--print` / Agent SDK) |
 | NotebookEdit | NotebookEdit | Edit Jupyter notebooks | ✅ Available |
 | EnterPlanMode | EnterPlanMode | Enter planning mode | ✅ Available |
 | ExitPlanMode | ExitPlanMode | Exit planning mode | ✅ Available |

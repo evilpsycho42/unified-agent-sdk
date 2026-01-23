@@ -125,6 +125,9 @@ Legend per cell: `workspace` / `--add-dir` / `outside`.
 | Codex | curl ❌, WebSearch ✅ | curl ✅, WebSearch ✅ | curl ✅, WebSearch ✅ |
 | Claude | curl ❌, WebSearch ✅ | curl ✅, WebSearch ✅ | curl ✅, WebSearch ✅ |
 
+Legend:
+- `curl` indicates whether the runner’s **local HTTP** test succeeded (a `curl` to a loopback server on `localhost` / `127.0.0.1`).
+
 Notes:
 - Codex `auto=low` used `sandboxMode="read-only"` and `curl` to local HTTP failed in this environment.
 - Claude `auto=low` denies network-capable `Bash` commands (like `curl`) for portability with Codex `auto=low`.
