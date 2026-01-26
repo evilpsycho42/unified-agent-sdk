@@ -35,9 +35,9 @@ nav:
       - Structured Output: guides/structured-output.md
   - Experiments:
       - Overview: experiments/index.md
-      - 2026-01-23: Access & Sandboxing: experiments/2026-01-23-access-sandboxing.md
-      - 2026-01-20: In-Flight Session Reconfiguration: experiments/2026-01-20-inflight-session-reconfiguration.md
-      - 2026-01-23: Permission E2E Testing: experiments/2026-01-23-permission-e2e-testing.md
+      - "2026-01-23: Access & Sandboxing": experiments/2026-01-23-access-sandboxing.md
+      - "2026-01-20: In-Flight Session Reconfiguration": experiments/2026-01-20-inflight-session-reconfiguration.md
+      - "2026-01-23: Permission E2E Testing": experiments/2026-01-23-permission-e2e-testing.md
   - Providers:
       - Codex: providers/codex.md
       - Claude: providers/claude.md
