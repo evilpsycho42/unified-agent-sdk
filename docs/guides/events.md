@@ -82,6 +82,15 @@ Provider notes:
 - Claude raw usage reports cache as separate fields (`cache_read_input_tokens`, `cache_creation_input_tokens`) and may report `input_tokens` for **non-cache** input only. This SDK normalizes `Usage.input_tokens = input_tokens + cache_read_tokens + cache_write_tokens`.
 - Codex raw usage reports `cached_input_tokens` as a subset of `input_tokens`. This SDK maps `Usage.cache_read_tokens = cached_input_tokens` and leaves `cache_write_tokens` as `0` when unavailable.
 
+### Per-turn normalization
+
+Both providers report consistent **per-turn** token usage in `run.completed.usage`:
+
+- **Claude**: Reports per-request usage directly
+- **Codex**: Reports cumulative session totals internally, but this SDK normalizes to per-turn values automatically
+
+You can rely on `usage.input_tokens` and `usage.output_tokens` reflecting tokens for the current turn only, regardless of provider.
+
 ---
 
 ## Native tools by provider

@@ -184,6 +184,22 @@ These events are not yet exposed in the TypeScript SDK types. Monitor [Codex rel
 
 On `run.completed`, `usage` follows the unified breakdown semantics documented in [Events](../guides/events.md#usage-semantics).
 
+### Per-turn normalization
+
+Codex SDK reports cumulative token usage across the session, but this SDK automatically normalizes to **per-turn values**. You always receive consistent per-request token counts in `run.completed.usage`:
+
+```ts
+const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+const result = await run.result;
+
+// Per-turn usage (what you need for cost tracking, rate limiting, etc.)
+console.log(result.usage.input_tokens);   // Tokens for THIS turn only
+console.log(result.usage.output_tokens);  // Tokens for THIS turn only
+console.log(result.usage.total_tokens);   // input + output for THIS turn
+```
+
+### Field mapping
+
 Codex raw usage (`turn.completed.usage`) reports:
 
 - `input_tokens`
@@ -195,6 +211,10 @@ This SDK maps:
 - `usage.cache_read_tokens = usage.raw.cached_input_tokens` (or `0` if omitted)
 - `usage.cache_write_tokens = 0` (not reported by Codex)
 - `usage.total_tokens = usage.input_tokens + usage.output_tokens` (cache tokens are not added again)
+
+### Advanced: accessing raw cumulative values
+
+For debugging or advanced use cases, raw cumulative session totals are available in `usage.raw.__cumulative`. The `__wasReset` flag indicates if a session reset was detected.
 
 ## Practical tips
 

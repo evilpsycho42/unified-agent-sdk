@@ -24,6 +24,47 @@ import { AsyncEventStream, normalizeStructuredOutputSchema } from "@unified-agen
 export const PROVIDER_CODEX_SDK = "@openai/codex-sdk" as ProviderId;
 const CODEX_WORKSPACE_PATCH_APPLIED_TOOL_NAME = "WorkspacePatchApplied";
 
+/**
+ * Tracks cumulative token usage across a Codex session.
+ * Codex SDK reports cumulative totals on each turn.completed event,
+ * so we need to compute per-turn deltas.
+ */
+interface CumulativeUsage {
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+}
+
+/**
+ * Computes per-turn usage delta from cumulative values.
+ * Handles session resets (when cumulative values decrease).
+ */
+function computeUsageDelta(
+  current: CumulativeUsage,
+  prev: CumulativeUsage | null,
+): { delta: CumulativeUsage; wasReset: boolean } {
+  if (prev === null) {
+    return { delta: { ...current }, wasReset: false };
+  }
+
+  const wasReset =
+    current.input_tokens < prev.input_tokens ||
+    current.output_tokens < prev.output_tokens;
+
+  if (wasReset) {
+    return { delta: { ...current }, wasReset: true };
+  }
+
+  return {
+    delta: {
+      input_tokens: current.input_tokens - prev.input_tokens,
+      cached_input_tokens: current.cached_input_tokens - prev.cached_input_tokens,
+      output_tokens: current.output_tokens - prev.output_tokens,
+    },
+    wasReset: false,
+  };
+}
+
 type UnifiedOwnedCodexKeys = "workingDirectory" | "additionalDirectories" | "model" | "modelReasoningEffort";
 export type CodexSessionConfig = Omit<ThreadOptions, UnifiedOwnedCodexKeys>;
 
@@ -135,6 +176,7 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
   private readonly lastAgentTextByItemId = new Map<string, string>();
   private readonly lastReasoningTextByItemId = new Map<string, string>();
   private readonly seenToolCallIds = new Set<string>();
+  private prevCumulativeUsage: CumulativeUsage | null = null;
 
   constructor(params: {
     sessionId?: string;
@@ -312,17 +354,27 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
         });
 
         if (ev.type === "turn.completed") {
-          const inputTokens = ev.usage.input_tokens;
-          const cacheReadTokens = typeof ev.usage.cached_input_tokens === "number" ? ev.usage.cached_input_tokens : 0;
-          const outputTokens = ev.usage.output_tokens;
+          const current: CumulativeUsage = {
+            input_tokens: ev.usage.input_tokens,
+            cached_input_tokens: typeof ev.usage.cached_input_tokens === "number" ? ev.usage.cached_input_tokens : 0,
+            output_tokens: ev.usage.output_tokens,
+          };
+
+          const { delta, wasReset } = computeUsageDelta(current, this.prevCumulativeUsage);
+          this.prevCumulativeUsage = current;
+
           const u = {
-            input_tokens: inputTokens,
-            cache_read_tokens: cacheReadTokens,
+            input_tokens: delta.input_tokens,
+            cache_read_tokens: delta.cached_input_tokens,
             cache_write_tokens: 0,
-            output_tokens: outputTokens,
-            total_tokens: inputTokens + outputTokens,
+            output_tokens: delta.output_tokens,
+            total_tokens: delta.input_tokens + delta.output_tokens,
             duration_ms: Date.now() - startedAt,
-            raw: ev.usage,
+            raw: {
+              ...ev.usage,
+              __cumulative: current,
+              __wasReset: wasReset,
+            },
           };
           const parsed = turnOptions.outputSchema && typeof finalText === "string" ? tryParseJson(finalText) : undefined;
           const structuredOutput = parsed === undefined ? undefined : unwrapStructuredOutput(parsed);

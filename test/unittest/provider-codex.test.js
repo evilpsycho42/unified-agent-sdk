@@ -500,3 +500,133 @@ test("Codex resumeSession restores unified session config from snapshot metadata
   assert.equal(codex.lastResumeThreadOptions.webSearchEnabled, true);
   assert.equal(codex.lastResumeThreadOptions.approvalPolicy, "never");
 });
+
+test("Codex adapter normalizes cumulative token usage to per-turn deltas across multi-turn sessions", async () => {
+  let turnCount = 0;
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (thread) {
+      turnCount += 1;
+      thread._id = "t_multi_turn";
+      yield { type: "thread.started", thread_id: "t_multi_turn" };
+      // Simulate cumulative usage that grows each turn
+      if (turnCount === 1) {
+        yield { type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 20, output_tokens: 50 } };
+      } else {
+        yield { type: "turn.completed", usage: { input_tokens: 200, cached_input_tokens: 40, output_tokens: 100 } };
+      }
+    }),
+  });
+
+  const session = await runtime.openSession({ config: { workspace: { cwd: process.cwd() } } });
+
+  // First run - should report raw values (100, 50)
+  const run1 = await session.run({ input: { parts: [{ type: "text", text: "turn 1" }] } });
+  let done1;
+  for await (const ev of run1.events) {
+    if (ev.type === "run.completed") done1 = ev;
+  }
+  assert.ok(done1, "expected run.completed for turn 1");
+  assert.equal(done1.usage.input_tokens, 100);
+  assert.equal(done1.usage.cache_read_tokens, 20);
+  assert.equal(done1.usage.output_tokens, 50);
+  assert.equal(done1.usage.total_tokens, 150);
+
+  // Second run - should report delta values (100, 50) not cumulative (200, 100)
+  const run2 = await session.run({ input: { parts: [{ type: "text", text: "turn 2" }] } });
+  let done2;
+  for await (const ev of run2.events) {
+    if (ev.type === "run.completed") done2 = ev;
+  }
+  assert.ok(done2, "expected run.completed for turn 2");
+  assert.equal(done2.usage.input_tokens, 100, "should be delta (200-100), not cumulative 200");
+  assert.equal(done2.usage.cache_read_tokens, 20, "should be delta (40-20)");
+  assert.equal(done2.usage.output_tokens, 50, "should be delta (100-50), not cumulative 100");
+  assert.equal(done2.usage.total_tokens, 150);
+});
+
+test("Codex adapter handles session reset when cumulative usage decreases", async () => {
+  let turnCount = 0;
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (thread) {
+      turnCount += 1;
+      thread._id = "t_reset";
+      yield { type: "thread.started", thread_id: "t_reset" };
+      if (turnCount === 1) {
+        yield { type: "turn.completed", usage: { input_tokens: 500, cached_input_tokens: 100, output_tokens: 200 } };
+      } else {
+        // Simulate reset: cumulative values are lower than previous turn
+        yield { type: "turn.completed", usage: { input_tokens: 50, cached_input_tokens: 10, output_tokens: 30 } };
+      }
+    }),
+  });
+
+  const session = await runtime.openSession({ config: { workspace: { cwd: process.cwd() } } });
+
+  // First run
+  const run1 = await session.run({ input: { parts: [{ type: "text", text: "turn 1" }] } });
+  let done1;
+  for await (const ev of run1.events) {
+    if (ev.type === "run.completed") done1 = ev;
+  }
+  assert.ok(done1);
+  assert.equal(done1.usage.raw.__wasReset, false);
+
+  // Second run - reset detected
+  const run2 = await session.run({ input: { parts: [{ type: "text", text: "turn 2" }] } });
+  let done2;
+  for await (const ev of run2.events) {
+    if (ev.type === "run.completed") done2 = ev;
+  }
+  assert.ok(done2, "expected run.completed for turn 2");
+  assert.equal(done2.usage.input_tokens, 50, "should use raw values on reset");
+  assert.equal(done2.usage.output_tokens, 30, "should use raw values on reset");
+  assert.equal(done2.usage.raw.__wasReset, true, "should indicate reset occurred");
+});
+
+test("Codex adapter exposes cumulative totals in usage.raw.__cumulative", async () => {
+  let turnCount = 0;
+  const runtime = new CodexRuntime({
+    codex: new FakeCodex(async function* (thread) {
+      turnCount += 1;
+      thread._id = "t_cumulative";
+      yield { type: "thread.started", thread_id: "t_cumulative" };
+      if (turnCount === 1) {
+        yield { type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 10, output_tokens: 50 } };
+      } else {
+        yield { type: "turn.completed", usage: { input_tokens: 250, cached_input_tokens: 25, output_tokens: 120 } };
+      }
+    }),
+  });
+
+  const session = await runtime.openSession({ config: { workspace: { cwd: process.cwd() } } });
+
+  // First run
+  const run1 = await session.run({ input: { parts: [{ type: "text", text: "turn 1" }] } });
+  let done1;
+  for await (const ev of run1.events) {
+    if (ev.type === "run.completed") done1 = ev;
+  }
+  assert.ok(done1);
+  assert.deepEqual(done1.usage.raw.__cumulative, {
+    input_tokens: 100,
+    cached_input_tokens: 10,
+    output_tokens: 50,
+  });
+
+  // Second run - cumulative should reflect session totals
+  const run2 = await session.run({ input: { parts: [{ type: "text", text: "turn 2" }] } });
+  let done2;
+  for await (const ev of run2.events) {
+    if (ev.type === "run.completed") done2 = ev;
+  }
+  assert.ok(done2);
+  assert.deepEqual(done2.usage.raw.__cumulative, {
+    input_tokens: 250,
+    cached_input_tokens: 25,
+    output_tokens: 120,
+  }, "cumulative should contain session totals");
+
+  // Verify per-turn deltas are correct
+  assert.equal(done2.usage.input_tokens, 150, "per-turn input should be 250-100=150");
+  assert.equal(done2.usage.output_tokens, 70, "per-turn output should be 120-50=70");
+});
