@@ -175,6 +175,65 @@ test("Claude adapter normalizes cache token usage into unified breakdown fields"
   assert.equal(done.usage.total_tokens, 38);
 });
 
+test("Claude adapter prefers last model-call usage from stream events for run.completed.usage", async () => {
+  const runtime = new ClaudeRuntime({
+    query: () =>
+      (async function* () {
+        // Stream usage is per-model-call (message_delta). This should be used for run.completed.usage.
+        yield {
+          type: "stream_event",
+          event: {
+            type: "message_delta",
+            usage: {
+              input_tokens: 3,
+              cache_read_input_tokens: 10,
+              cache_creation_input_tokens: 20,
+              output_tokens: 5,
+            },
+          },
+        };
+
+        // Result usage can be aggregated across internal agentic turns. This should not override the stream snapshot.
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {
+            input_tokens: 999,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            output_tokens: 0,
+          },
+          modelUsage: {
+            haiku: { contextWindow: 200000, maxOutputTokens: 64000 },
+          },
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({ config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+
+  const done = await run.result;
+  assert.equal(done.status, "success");
+  assert.equal(done.usage.input_tokens, 33);
+  assert.equal(done.usage.cache_read_tokens, 10);
+  assert.equal(done.usage.cache_write_tokens, 20);
+  assert.equal(done.usage.output_tokens, 5);
+  assert.equal(done.usage.total_tokens, 38);
+  assert.equal(done.usage.context_window_tokens, 200000);
+  assert.equal(done.usage.max_output_tokens, 64000);
+  assert.deepEqual(done.usage.raw, {
+    input_tokens: 3,
+    cache_read_input_tokens: 10,
+    cache_creation_input_tokens: 20,
+    output_tokens: 5,
+  });
+});
+
 test("ClaudeSession.run rejects concurrent runs (SessionBusyError)", async () => {
   const runtime = new ClaudeRuntime({
     query: ({ options }) =>

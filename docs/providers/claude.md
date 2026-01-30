@@ -92,10 +92,15 @@ const run = await session.run({
 
 On `run.completed`, `usage` follows the unified breakdown semantics documented in [Events](../guides/events.md#usage-semantics).
 
-Notable Claude-specific detail: the Claude Agent SDK can report cache tokens separately (for example `cache_read_input_tokens` / `cache_creation_input_tokens`) and may report `usage.input_tokens` as **non-cache** input only. This SDK normalizes the unified fields so that:
+Notable Claude-specific details:
+
+- The Claude Agent SDK can report cache tokens separately (for example `cache_read_input_tokens` / `cache_creation_input_tokens`) and may report `usage.input_tokens` as **non-cache** input only. This SDK normalizes the unified fields so that:
 
 - `usage.input_tokens = usage.raw.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens`
 - `usage.total_tokens = usage.input_tokens + usage.output_tokens`
+
+- In agentic runs (when Claude performs tool loops), the SDK’s final `result.usage` can aggregate across internal agentic turns. For “current context length” consumers, this adapter derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage`. If you need aggregate totals, inspect `run.completed.raw.usage` (the full SDK `result` payload).
+- When available, this adapter also populates `usage.context_window_tokens` and `usage.max_output_tokens` from the SDK `modelUsage` summary.
 
 #### Thinking / “think mode”
 

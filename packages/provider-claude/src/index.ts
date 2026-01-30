@@ -314,6 +314,11 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     let structuredOutput: unknown | undefined;
     const toolCallsSeen = new Set<string>();
     const toolResultsSeen = new Set<string>();
+    const mappingState: { toolCallsSeen: Set<string>; toolResultsSeen: Set<string>; lastAssistantMessageUsage?: unknown } = {
+      toolCallsSeen,
+      toolResultsSeen,
+      lastAssistantMessageUsage: undefined,
+    };
 
     const runProvider: Partial<ClaudeSessionConfig> = req.config?.provider ?? {};
 
@@ -376,7 +381,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
       for await (const msg of q) {
         this.sessionId = (msg as { session_id?: string }).session_id ?? this.sessionId;
 
-        const mapped = mapClaudeMessage(runId, msg, { toolCallsSeen, toolResultsSeen });
+        const mapped = mapClaudeMessage(runId, msg, mappingState);
         for (const ev of mapped.events) yield ev;
 
         if (mapped.result) {
@@ -950,7 +955,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 function mapClaudeMessage(
   runId: UUID,
   msg: SDKMessage,
-  state?: { toolCallsSeen: Set<string>; toolResultsSeen: Set<string> },
+  state?: { toolCallsSeen: Set<string>; toolResultsSeen: Set<string>; lastAssistantMessageUsage?: unknown },
 ): {
   events: RuntimeEvent[];
   result?: {
@@ -967,6 +972,14 @@ function mapClaudeMessage(
   }
 
   if (msg.type === "stream_event") {
+    // Capture per-model-call usage from stream events. Claude's final `result.usage` aggregates across
+    // internal agentic turns; for "current context length" consumers, we want the most recent call.
+    // Anthropic streaming emits `message_start` / `message_delta` events that include usage snapshots.
+    if (state) {
+      const usage = extractClaudeUsageFromStreamEvent(msg as SDKPartialAssistantMessage);
+      if (usage) state.lastAssistantMessageUsage = usage;
+    }
+
     const delta = extractTextDelta(msg as SDKPartialAssistantMessage);
     if (delta) {
       return { events: [{ type: "assistant.delta", atMs: Date.now(), runId, textDelta: delta, raw: msg }] };
@@ -1046,7 +1059,9 @@ function mapClaudeMessage(
     const r = msg as SDKResultMessage;
     if (r.subtype === "success") {
       const success = r as SDKResultSuccess;
-      const tokenUsage = extractClaudeTokenUsage(success.usage);
+      const usageForTurn = state?.lastAssistantMessageUsage ?? success.usage;
+      const tokenUsage = extractClaudeTokenUsage(usageForTurn);
+      const limits = extractClaudeModelLimits(success.modelUsage);
       return {
         events: [],
         result: {
@@ -1055,22 +1070,25 @@ function mapClaudeMessage(
           structuredOutput: success.structured_output,
           usage: {
             ...tokenUsage,
+            ...limits,
             cost_usd: success.total_cost_usd,
             duration_ms: success.duration_ms,
-            raw: success.usage,
+            raw: usageForTurn,
           },
         },
       };
     }
 
     const error = r as SDKResultError;
-    const tokenUsage = extractClaudeTokenUsage(error.usage);
+    const usageForTurn = state?.lastAssistantMessageUsage ?? error.usage;
+    const tokenUsage = extractClaudeTokenUsage(usageForTurn);
+    const limits = extractClaudeModelLimits(error.modelUsage);
     return {
       events: [],
       result: {
         status: "error",
         finalText: error.errors?.join("\n") ?? undefined,
-        usage: { ...tokenUsage, cost_usd: error.total_cost_usd, duration_ms: error.duration_ms, raw: error.usage },
+        usage: { ...tokenUsage, ...limits, cost_usd: error.total_cost_usd, duration_ms: error.duration_ms, raw: usageForTurn },
       },
     };
   }
@@ -1091,6 +1109,23 @@ function extractThinkingDelta(msg: SDKPartialAssistantMessage): string | null {
   if (ev?.type === "content_block_delta" && ev.delta?.type === "thinking_delta" && typeof ev.delta.thinking === "string") {
     return ev.delta.thinking;
   }
+  return null;
+}
+
+function extractClaudeUsageFromStreamEvent(msg: SDKPartialAssistantMessage): unknown | null {
+  const ev = msg.event as any;
+  if (!ev || typeof ev !== "object") return null;
+
+  // Prefer `message_delta.usage`, which includes the final output token count for the message.
+  if (ev.type === "message_delta" && ev.usage && typeof ev.usage === "object") {
+    return ev.usage;
+  }
+
+  // Fallback: `message_start.message.usage` is present but may have incomplete output token counts.
+  if (ev.type === "message_start" && ev.message && typeof ev.message === "object" && ev.message.usage && typeof ev.message.usage === "object") {
+    return ev.message.usage;
+  }
+
   return null;
 }
 
@@ -1181,5 +1216,32 @@ function extractClaudeTokenUsage(usage: unknown): {
     cache_write_tokens: cacheWriteTokens,
     output_tokens: outputTokens,
     total_tokens: totalTokens,
+  };
+}
+
+function extractClaudeModelLimits(modelUsage: unknown): { context_window_tokens?: number; max_output_tokens?: number } {
+  if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return {};
+
+  let contextWindowTokens: number | undefined;
+  let maxOutputTokens: number | undefined;
+
+  for (const v of Object.values(modelUsage as Record<string, unknown>)) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const m = v as Record<string, unknown>;
+
+    const cw = m.contextWindow;
+    if (typeof cw === "number" && Number.isFinite(cw) && (contextWindowTokens === undefined || cw > contextWindowTokens)) {
+      contextWindowTokens = cw;
+    }
+
+    const mo = m.maxOutputTokens;
+    if (typeof mo === "number" && Number.isFinite(mo) && (maxOutputTokens === undefined || mo > maxOutputTokens)) {
+      maxOutputTokens = mo;
+    }
+  }
+
+  return {
+    ...(contextWindowTokens === undefined ? {} : { context_window_tokens: contextWindowTokens }),
+    ...(maxOutputTokens === undefined ? {} : { max_output_tokens: maxOutputTokens }),
   };
 }

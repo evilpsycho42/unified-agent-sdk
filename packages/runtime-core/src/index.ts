@@ -133,6 +133,16 @@ export interface Usage {
   cache_write_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
+  /**
+   * Provider-reported maximum context window (in tokens), when available.
+   *
+   * Notes:
+   * - This is not the "current" context length; it is the model limit.
+   * - Many providers do not expose this via their SDKs.
+   */
+  context_window_tokens?: number;
+  /** Provider-reported maximum output tokens (in tokens), when available. */
+  max_output_tokens?: number;
   cost_usd?: number;
   duration_ms?: number;
   raw?: unknown;

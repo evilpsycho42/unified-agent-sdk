@@ -86,10 +86,19 @@ Provider notes:
 
 Both providers report consistent **per-turn** token usage in `run.completed.usage`:
 
-- **Claude**: Reports per-request usage directly
+- **Claude**: The Claude Agent SDK’s final `result.usage` aggregates across internal agentic turns. This SDK derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage` (useful as “current context length”). Aggregate totals remain available in `run.completed.raw.usage`.
 - **Codex**: Reports cumulative session totals internally, but this SDK normalizes to per-turn values automatically
 
 You can rely on `usage.input_tokens` and `usage.output_tokens` reflecting tokens for the current turn only, regardless of provider.
+
+### Context window fields
+
+When available, `run.completed.usage` can include:
+
+- `context_window_tokens` — provider-reported maximum context window for the model
+- `max_output_tokens` — provider-reported maximum output tokens for the model
+
+These are model limits, not “current” usage, and may be omitted by providers that don’t expose them.
 
 ---
 
