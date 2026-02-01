@@ -635,6 +635,15 @@ function mapUnifiedAccessToClaude(
             // Claude Code sandbox networking is allow-list driven. To make unified `auto=medium` practical,
             // allow localhost + a broad set of common public domains.
             allowedDomains: DEFAULT_CLAUDE_SANDBOX_ALLOWED_DOMAINS,
+            // In Claude Code sandbox mode, Unix sockets are blocked by default unless explicitly allow-listed.
+            //
+            // Many local-first orchestrators use Unix sockets for local IPC, so allow any sockets that live directly
+            // under the session workspace roots (cwd + additionalDirs). This keeps access scoped to the orchestrator-
+            // defined workspace, rather than globally enabling all Unix sockets.
+            ...(() => {
+              const allowUnixSockets = findUnixSocketsAtWorkspaceRoots(workspace);
+              return allowUnixSockets.length > 0 ? { allowUnixSockets } : {};
+            })(),
             allowLocalBinding: true,
           },
         }
@@ -690,6 +699,55 @@ function mapUnifiedAccessToClaude(
       return { behavior: "allow" as const, updatedInput };
     },
   };
+}
+
+function findUnixSocketsAtWorkspaceRoots(workspace: { cwd?: string; additionalDirs?: string[] } | undefined): string[] {
+  // No Unix domain sockets on Windows; keep config empty for portability.
+  if (process.platform === "win32") return [];
+
+  const baseDir = typeof workspace?.cwd === "string" && workspace.cwd ? workspace.cwd : undefined;
+  const roots: string[] = [];
+  if (typeof workspace?.cwd === "string" && workspace.cwd.trim()) roots.push(workspace.cwd.trim());
+  if (Array.isArray(workspace?.additionalDirs)) {
+    for (const d of workspace.additionalDirs) {
+      if (typeof d === "string" && d.trim()) roots.push(d.trim());
+    }
+  }
+
+  const sockets = new Set<string>();
+  for (const rootRaw of roots) {
+    const absRoot = canonicalizePathForWorkspaceCheck(rootRaw, { baseDir });
+    if (!absRoot) continue;
+
+    try {
+      const stat = fs.statSync(absRoot);
+      if (stat.isSocket()) {
+        sockets.add(absRoot);
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(absRoot);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const candidate = path.join(absRoot, entry);
+      try {
+        if (fs.statSync(candidate).isSocket()) sockets.add(candidate);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return Array.from(sockets);
 }
 
 function maybeInjectClaudeSandboxWriteRulesForAdditionalDirs(

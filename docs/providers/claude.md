@@ -172,6 +172,8 @@ Claude Code permissions are defined in settings (for example `.claude/settings.j
 
 In this repo’s adapter, `access.auto="medium"` enables the Claude Code sandbox and includes `localhost` / `127.0.0.1` / `::1` in the allowlist so local HTTP APIs work.
 
+Claude Code sandboxing also blocks Unix domain sockets by default; in `access.auto="medium"` this adapter adds a best-effort allowlist of any Unix sockets that live **directly under workspace roots** (`workspace.cwd` + `workspace.additionalDirs`). This makes local-first IPC patterns (for example a daemon exposing `.../daemon.sock`) usable without globally enabling all Unix sockets.
+
 Note: in Claude Code, sandbox filesystem write permissions are derived from these `Edit(...)` allow rules. In this unified SDK, `workspace.additionalDirs` (aka `--add-dir`) are treated as writable roots in `access.auto="medium"` by injecting `Edit(...)` allow rules automatically (unless you override settings via `extraArgs.settings`).
 
 For portability with Codex `access.auto="low"` (`sandboxMode="read-only"`), this adapter treats `access.auto="low"` as **no shell networking** and denies network-capable `Bash` commands (for example `curl`, `wget`, `ssh`). It enforces this both via the programmatic `canUseTool` gate and by injecting `permissions.deny` rules via Claude Code `--settings`, so user settings that pre-allow `Bash(curl:*)` can’t bypass unified `auto="low"`.

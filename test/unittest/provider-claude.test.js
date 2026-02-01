@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
@@ -471,6 +472,61 @@ test("Claude adapter maps unified SessionConfig.access into Claude options (auto
       assert.deepEqual(done.structuredOutput, { ok: true });
     });
   }
+});
+
+test("Claude adapter allow-lists Unix sockets under workspace roots when auto=medium", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Unix domain sockets are not supported on Windows.");
+    return;
+  }
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "unified-agent-sdk-unix-sock-"));
+  const sockPath = path.join(tmp, "daemon.sock");
+  const canonicalSockPath = path.join(fs.realpathSync(tmp), "daemon.sock");
+
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(sockPath, resolve);
+  });
+
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  const runtime = new ClaudeRuntime({
+    query: ({ options }) =>
+      (async function* () {
+        assert.equal(options.sandbox?.enabled, true);
+        assert.ok(Array.isArray(options.sandbox?.network?.allowUnixSockets));
+        assert.ok(
+          options.sandbox?.network?.allowUnixSockets.includes(canonicalSockPath),
+          `expected allowUnixSockets to include ${canonicalSockPath}`,
+        );
+
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: { ok: true },
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({
+    config: {
+      workspace: { cwd: process.cwd(), additionalDirs: [tmp] },
+      access: { auto: "medium" },
+    },
+  });
+
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+  const done = await run.result;
+  assert.equal(done.status, "success");
 });
 
 test("Claude adapter maps unified SessionConfig.reasoningEffort into options.maxThinkingTokens", async (t) => {

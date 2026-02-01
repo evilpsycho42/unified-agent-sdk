@@ -54,6 +54,7 @@ Notes:
 - Network access (for example `curl` to local HTTP APIs like `http://127.0.0.1:port/...`) is expected in `auto="medium"` and `auto="high"`.
 - This SDK no longer exposes separate “network” / “webSearch” toggles; those capabilities are tied to `access.auto`.
 - Provider sandboxes still differ; `auto="low"` is intentionally conservative (Codex read-only sandboxes may block `curl`, and this repo’s Claude adapter denies network-capable `Bash` commands in `auto="low"` for portability).
+- Provider detail: the Claude adapter’s `auto="medium"` sandbox also needs an allowlist for Unix domain sockets; this SDK best-effort allowlists sockets that live directly under workspace roots (`cwd` + `additionalDirs`).
 
 ## Unified reasoning config (portable)
 
