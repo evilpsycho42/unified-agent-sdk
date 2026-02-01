@@ -386,6 +386,7 @@ class CodexSession implements UnifiedSession<CodexSessionConfig, never> {
             finalText,
             structuredOutput,
             usage: u,
+            total_usage: u,
             raw: { ...(ev as any), reasoningText },
           };
           completed = true;

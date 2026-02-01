@@ -225,13 +225,24 @@ test("Claude adapter prefers last model-call usage from stream events for run.co
   assert.equal(done.usage.cache_write_tokens, 20);
   assert.equal(done.usage.output_tokens, 5);
   assert.equal(done.usage.total_tokens, 38);
-  assert.equal(done.usage.context_window_tokens, 200000);
   assert.equal(done.usage.max_output_tokens, 64000);
+  assert.equal(done.total_usage.input_tokens, 999);
+  assert.equal(done.total_usage.cache_read_tokens, 0);
+  assert.equal(done.total_usage.cache_write_tokens, 0);
+  assert.equal(done.total_usage.output_tokens, 0);
+  assert.equal(done.total_usage.total_tokens, 999);
+  assert.equal(done.total_usage.max_output_tokens, 64000);
   assert.deepEqual(done.usage.raw, {
     input_tokens: 3,
     cache_read_input_tokens: 10,
     cache_creation_input_tokens: 20,
     output_tokens: 5,
+  });
+  assert.deepEqual(done.total_usage.raw, {
+    input_tokens: 999,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    output_tokens: 0,
   });
 });
 

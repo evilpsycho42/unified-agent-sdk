@@ -99,8 +99,8 @@ Notable Claude-specific details:
 - `usage.input_tokens = usage.raw.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens`
 - `usage.total_tokens = usage.input_tokens + usage.output_tokens`
 
-- In agentic runs (when Claude performs tool loops), the SDK’s final `result.usage` can aggregate across internal agentic turns. For “current context length” consumers, this adapter derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage`. If you need aggregate totals, inspect `run.completed.raw.usage` (the full SDK `result` payload).
-- When available, this adapter also populates `usage.context_window_tokens` and `usage.max_output_tokens` from the SDK `modelUsage` summary.
+- In agentic runs (when Claude performs tool loops), the SDK’s final `result.usage` can aggregate across internal agentic turns. For “current context length” consumers, this adapter derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage`. Aggregate totals are exposed as `run.completed.total_usage` (and remain available in `run.completed.raw.usage`, the full SDK `result` payload).
+- When available, this adapter populates `usage.max_output_tokens` (and `total_usage.max_output_tokens`) from the SDK `modelUsage` summary.
 
 #### Thinking / “think mode”
 

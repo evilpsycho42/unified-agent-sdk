@@ -19,6 +19,7 @@ import type {
   RunRequest,
   RuntimeCapabilities,
   RuntimeEvent,
+  Usage,
   SessionConfig,
   SessionHandle,
   SessionStatus,
@@ -395,6 +396,7 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
             finalText,
             structuredOutput,
             usage: mapped.result.usage,
+            total_usage: mapped.result.total_usage,
             raw: msg,
           };
           completed = true;
@@ -1020,7 +1022,8 @@ function mapClaudeMessage(
     status: "success" | "error";
     finalText?: string;
     structuredOutput?: unknown;
-    usage?: { input_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; output_tokens?: number; total_tokens?: number; cost_usd?: number; duration_ms?: number; raw?: unknown };
+    usage?: Usage;
+    total_usage?: Usage;
   };
 } {
   if (msg.type === "tool_progress") {
@@ -1118,7 +1121,9 @@ function mapClaudeMessage(
     if (r.subtype === "success") {
       const success = r as SDKResultSuccess;
       const usageForTurn = state?.lastAssistantMessageUsage ?? success.usage;
+      const usageTotal = success.usage;
       const tokenUsage = extractClaudeTokenUsage(usageForTurn);
+      const totalTokenUsage = extractClaudeTokenUsage(usageTotal);
       const limits = extractClaudeModelLimits(success.modelUsage);
       return {
         events: [],
@@ -1133,13 +1138,22 @@ function mapClaudeMessage(
             duration_ms: success.duration_ms,
             raw: usageForTurn,
           },
+          total_usage: {
+            ...totalTokenUsage,
+            ...limits,
+            cost_usd: success.total_cost_usd,
+            duration_ms: success.duration_ms,
+            raw: usageTotal,
+          },
         },
       };
     }
 
     const error = r as SDKResultError;
     const usageForTurn = state?.lastAssistantMessageUsage ?? error.usage;
+    const usageTotal = error.usage;
     const tokenUsage = extractClaudeTokenUsage(usageForTurn);
+    const totalTokenUsage = extractClaudeTokenUsage(usageTotal);
     const limits = extractClaudeModelLimits(error.modelUsage);
     return {
       events: [],
@@ -1147,6 +1161,7 @@ function mapClaudeMessage(
         status: "error",
         finalText: error.errors?.join("\n") ?? undefined,
         usage: { ...tokenUsage, ...limits, cost_usd: error.total_cost_usd, duration_ms: error.duration_ms, raw: usageForTurn },
+        total_usage: { ...totalTokenUsage, ...limits, cost_usd: error.total_cost_usd, duration_ms: error.duration_ms, raw: usageTotal },
       },
     };
   }
@@ -1277,20 +1292,14 @@ function extractClaudeTokenUsage(usage: unknown): {
   };
 }
 
-function extractClaudeModelLimits(modelUsage: unknown): { context_window_tokens?: number; max_output_tokens?: number } {
+function extractClaudeModelLimits(modelUsage: unknown): { max_output_tokens?: number } {
   if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return {};
 
-  let contextWindowTokens: number | undefined;
   let maxOutputTokens: number | undefined;
 
   for (const v of Object.values(modelUsage as Record<string, unknown>)) {
     if (!v || typeof v !== "object" || Array.isArray(v)) continue;
     const m = v as Record<string, unknown>;
-
-    const cw = m.contextWindow;
-    if (typeof cw === "number" && Number.isFinite(cw) && (contextWindowTokens === undefined || cw > contextWindowTokens)) {
-      contextWindowTokens = cw;
-    }
 
     const mo = m.maxOutputTokens;
     if (typeof mo === "number" && Number.isFinite(mo) && (maxOutputTokens === undefined || mo > maxOutputTokens)) {
@@ -1299,7 +1308,6 @@ function extractClaudeModelLimits(modelUsage: unknown): { context_window_tokens?
   }
 
   return {
-    ...(contextWindowTokens === undefined ? {} : { context_window_tokens: contextWindowTokens }),
     ...(maxOutputTokens === undefined ? {} : { max_output_tokens: maxOutputTokens }),
   };
 }

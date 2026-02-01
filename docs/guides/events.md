@@ -65,11 +65,11 @@ This section summarizes how the `@unified-agent-sdk/runtime-core` event model ma
 | `tool.result` | `item.completed` for tool items | `tool_result` blocks in subsequent messages | Both support ✅ |
 | `run.completed` | `turn.completed` / `turn.failed` | `result` message | Both support ✅ |
 | `provider.event` | Any unmapped `ThreadEvent` | Any unmapped `SDKMessage` | Use for debugging |
-| `usage` | `turn.completed.usage` | `result.usage` | Unified: `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens` |
+| `usage` | `turn.completed.usage` | `result.usage` | Unified per-turn: `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `total_tokens` |
 
 #### Usage semantics
 
-`run.completed.usage` follows a consistent **breakdown** model:
+`run.completed.usage` (and when present, `run.completed.total_usage`) follows a consistent **breakdown** model:
 
 - `input_tokens`: total input tokens processed (including any cached tokens)
 - `cache_read_tokens`: portion of `input_tokens` served from a prompt-cache read
@@ -86,16 +86,15 @@ Provider notes:
 
 Both providers report consistent **per-turn** token usage in `run.completed.usage`:
 
-- **Claude**: The Claude Agent SDK’s final `result.usage` aggregates across internal agentic turns. This SDK derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage` (useful as “current context length”). Aggregate totals remain available in `run.completed.raw.usage`.
+- **Claude**: The Claude Agent SDK’s final `result.usage` aggregates across internal agentic turns. This SDK derives a per-model-call usage snapshot from streaming `message_delta.usage` events and reports the **most recent** model call in `run.completed.usage` (useful as “current context length”). Aggregate totals are exposed as `run.completed.total_usage` (and remain available in `run.completed.raw.usage`).
 - **Codex**: Reports cumulative session totals internally, but this SDK normalizes to per-turn values automatically
 
 You can rely on `usage.input_tokens` and `usage.output_tokens` reflecting tokens for the current turn only, regardless of provider.
 
-### Context window fields
+### Model limit fields
 
-When available, `run.completed.usage` can include:
+When available, `run.completed.usage` and `run.completed.total_usage` can include:
 
-- `context_window_tokens` — provider-reported maximum context window for the model
 - `max_output_tokens` — provider-reported maximum output tokens for the model
 
 These are model limits, not “current” usage, and may be omitted by providers that don’t expose them.

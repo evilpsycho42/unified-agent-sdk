@@ -133,14 +133,6 @@ export interface Usage {
   cache_write_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
-  /**
-   * Provider-reported maximum context window (in tokens), when available.
-   *
-   * Notes:
-   * - This is not the "current" context length; it is the model limit.
-   * - Many providers do not expose this via their SDKs.
-   */
-  context_window_tokens?: number;
   /** Provider-reported maximum output tokens (in tokens), when available. */
   max_output_tokens?: number;
   cost_usd?: number;
@@ -256,6 +248,15 @@ export type RuntimeEvent =
       finalText?: string;
       structuredOutput?: unknown;
       usage?: Usage;
+      /**
+       * Provider-reported aggregate usage for the run, when available.
+       *
+       * Semantics:
+       * - `usage` is intended to reflect the model call that produced the final assistant response.
+       * - Some providers (notably Claude) can perform multiple internal agentic turns; for those,
+       *   this field captures the provider’s aggregate usage summary for the overall run.
+       */
+      total_usage?: Usage;
       raw?: unknown;
     }
   | {
