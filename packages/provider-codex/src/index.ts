@@ -892,13 +892,29 @@ async function readCodexLastCallContextLengthFromSessionLog(params: {
   startAtMs: number;
   endAtMs: number;
 }): Promise<number | undefined> {
-  const logPath = await findCodexRolloutLogPath(params.codexHome, params.threadId, params.endAtMs);
-  if (!logPath) return undefined;
-
   // Token count events can land slightly before/after the unified run timestamps.
   const startMs = params.startAtMs - 1_000;
   const endMs = params.endAtMs + 2_000;
 
+  const attemptRead = async (): Promise<number | undefined> => {
+    const logPath = await findCodexRolloutLogPath(params.codexHome, params.threadId, params.endAtMs);
+    if (!logPath) return undefined;
+    return scanCodexRolloutLogForLastCallContextLength(logPath, startMs, endMs);
+  };
+
+  const first = await attemptRead();
+  if (first !== undefined) return first;
+
+  // Codex can write token_count entries slightly after turn completion; retry once.
+  await sleep(500);
+  return attemptRead();
+}
+
+async function scanCodexRolloutLogForLastCallContextLength(
+  logPath: string,
+  startMs: number,
+  endMs: number
+): Promise<number | undefined> {
   let lastContextLength: number | undefined;
 
   try {
@@ -943,6 +959,11 @@ async function readCodexLastCallContextLengthFromSessionLog(params: {
   }
 
   return lastContextLength;
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 async function findCodexRolloutLogPath(codexHome: string, threadId: string, atMs: number): Promise<string | null> {

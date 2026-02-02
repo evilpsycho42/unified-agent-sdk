@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { appendFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { CodexRuntime } from "@unified-agent-sdk/provider-codex";
@@ -245,6 +248,55 @@ test("Codex adapter defaults cached_input_tokens to 0 and does not double-count 
   assert.equal(done.usage.cache_read_tokens, 0);
   assert.equal(done.usage.total_tokens, 5);
   assert.ok(Number.isFinite(done.usage.total_tokens));
+});
+
+test("Codex adapter derives usage.context_length from rollout logs (retry for delayed token_count write)", async () => {
+  const codexHome = await mkdtemp(join(os.tmpdir(), "uagent-codex-home-"));
+  const sessionsDir = join(codexHome, "sessions");
+  await mkdir(sessionsDir, { recursive: true });
+
+  const threadId = "t_ctx_lag";
+  const logPath = join(sessionsDir, `rollout-test-${threadId}.jsonl`);
+  await writeFile(
+    logPath,
+    `${JSON.stringify({ timestamp: new Date().toISOString(), type: "session_meta", payload: { id: threadId } })}\n`,
+    "utf8",
+  );
+
+  let resolveAppendDone;
+  const appendDone = new Promise((resolve) => {
+    resolveAppendDone = resolve;
+  });
+
+  const runtime = new CodexRuntime({
+    client: { env: { CODEX_HOME: codexHome } },
+    codex: new FakeCodex(async function* () {
+      yield { type: "thread.started", thread_id: threadId };
+
+      setTimeout(() => {
+        const line = `${JSON.stringify({
+          timestamp: new Date().toISOString(),
+          type: "event_msg",
+          payload: { type: "token_count", info: { last_token_usage: { input_tokens: 100, output_tokens: 23 } } },
+        })}\n`;
+        appendFile(logPath, line, "utf8").finally(() => resolveAppendDone());
+      }, 50);
+
+      yield { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } };
+    }),
+  });
+
+  const session = await runtime.openSession({ config: { workspace: { cwd: process.cwd() } } });
+  const run = await session.run({ input: { parts: [{ type: "text", text: "hello" }] } });
+
+  const done = await run.result;
+  await appendDone;
+
+  assert.equal(done.status, "success");
+  assert.equal(done.usage.context_length, 123);
+
+  await session.dispose();
+  await rm(codexHome, { recursive: true, force: true });
 });
 
 test("CodexSession.run rejects concurrent runs (SessionBusyError)", async () => {
