@@ -19,13 +19,30 @@ export function normalizeStructuredOutputSchema(
     additionalProperties: false,
   };
 
+  const unwrapFallbackSingleProperty = (value: unknown): unknown => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length !== 1) return value;
+    const candidate = record[keys[0]];
+
+    if (rootType === "array") return Array.isArray(candidate) ? candidate : value;
+    if (rootType === "string") return typeof candidate === "string" ? candidate : value;
+    if (rootType === "number") return typeof candidate === "number" ? candidate : value;
+    if (rootType === "integer") return Number.isInteger(candidate) ? candidate : value;
+    if (rootType === "boolean") return typeof candidate === "boolean" ? candidate : value;
+    if (rootType === "null") return candidate === null ? candidate : value;
+
+    return value;
+  };
+
   return {
     schemaForProvider: wrapped,
     unwrapStructuredOutput: (value) => {
       if (value && typeof value === "object" && !Array.isArray(value) && "value" in value) {
         return (value as { value?: unknown }).value;
       }
-      return value;
+      return unwrapFallbackSingleProperty(value);
     },
   };
 }

@@ -23,6 +23,35 @@ test("normalizeStructuredOutputSchema wraps non-object roots and unwraps {value}
   assert.deepEqual(unwrapStructuredOutput({ value: [1, 2, 3] }), [1, 2, 3]);
 });
 
+test("normalizeStructuredOutputSchema unwraps single-property object wrappers for non-object roots", () => {
+  const arraySchema = { type: "array", items: { type: "integer" } };
+  const { unwrapStructuredOutput: unwrapArray } = normalizeStructuredOutputSchema(arraySchema);
+  assert.deepEqual(unwrapArray({ students: [1, 2, 3] }), [1, 2, 3]);
+
+  const stringSchema = { type: "string" };
+  const { unwrapStructuredOutput: unwrapString } = normalizeStructuredOutputSchema(stringSchema);
+  assert.equal(unwrapString({ result: "ok" }), "ok");
+
+  const numberSchema = { type: "number" };
+  const { unwrapStructuredOutput: unwrapNumber } = normalizeStructuredOutputSchema(numberSchema);
+  assert.equal(unwrapNumber({ score: 42.5 }), 42.5);
+
+  const integerSchema = { type: "integer" };
+  const { unwrapStructuredOutput: unwrapInteger } = normalizeStructuredOutputSchema(integerSchema);
+  assert.equal(unwrapInteger({ count: 7 }), 7);
+
+  const boolSchema = { type: "boolean" };
+  const { unwrapStructuredOutput: unwrapBoolean } = normalizeStructuredOutputSchema(boolSchema);
+  assert.equal(unwrapBoolean({ ok: true }), true);
+
+  const nullSchema = { type: "null" };
+  const { unwrapStructuredOutput: unwrapNull } = normalizeStructuredOutputSchema(nullSchema);
+  assert.equal(unwrapNull({ value: null }), null);
+
+  assert.deepEqual(unwrapArray({ students: [1], extra: true }), { students: [1], extra: true });
+  assert.deepEqual(unwrapString({ result: 123 }), { result: 123 });
+});
+
 test("AsyncEventStream enforces single-consumer", async () => {
   const s = new AsyncEventStream();
   s[Symbol.asyncIterator]();

@@ -227,3 +227,4 @@ For debugging or advanced use cases, raw cumulative session totals are available
 - Prefer setting `CODEX_HOME` to a repo-local directory (e.g. `.cache/codex`) to avoid writing to the user home directory.
 - For predictable CI runs: `sandboxMode: "read-only"`, `approvalPolicy: "never"`, `skipGitRepoCheck: true`.
   - Note: unified-agent-sdk `access.auto` presets always enable `webSearchEnabled` + `networkAccessEnabled`.
+- Reasoning caveat: this adapter maps unified `reasoningEffort="none"` to Codex `modelReasoningEffort="minimal"`. Some Codex backends reject `minimal` when `web_search` is enabled (which unified `access.auto` presets enable), returning an `invalid_request_error`. If encountered, use `reasoningEffort="low"` or higher.

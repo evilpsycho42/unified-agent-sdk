@@ -54,7 +54,8 @@ export type AccessConfig = {
  *
  * Notes:
  * - Codex maps this to `ThreadOptions.modelReasoningEffort` (`minimal|low|medium|high|xhigh`).
- * - Claude maps this to a thinking token budget (`maxThinkingTokens`).
+ * - Claude maps this to Claude Code effort (`CLAUDE_CODE_EFFORT_LEVEL`, when applicable) and also sets
+ *   a compatibility thinking-token budget (`maxThinkingTokens`).
  */
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
@@ -79,7 +80,8 @@ export interface SessionConfig<TProvider = ProviderConfig> {
    *
    * Semantics:
    * - Omitted: provider adapters default to `"medium"`.
-   * - `"none"`: lowest effort (Codex `"minimal"`, Claude `maxThinkingTokens=0`).
+   * - `"none"`: lowest effort (Codex `"minimal"`, Claude omits effort level and
+   *   uses compatibility `maxThinkingTokens=0`).
    *
    * This is unified-owned; provider configs should not be the source of truth for this knob.
    */

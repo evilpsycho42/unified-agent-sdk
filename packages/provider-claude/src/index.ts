@@ -360,7 +360,12 @@ class ClaudeSession implements UnifiedSession<ClaudeSessionConfig, Partial<Claud
     // To keep unified `auto=low` portable across providers (Codex read-only blocks curl), inject deny rules.
     maybeInjectClaudeDenyRulesForAutoLow(options, access);
 
-    options.maxThinkingTokens = mapReasoningEffortToClaudeMaxThinkingTokens(this.reasoningEffort ?? "medium");
+    const reasoningEffort = this.reasoningEffort ?? "medium";
+    options.maxThinkingTokens = mapReasoningEffortToClaudeMaxThinkingTokens(reasoningEffort);
+    const effortLevel = mapReasoningEffortToClaudeEffortLevel(reasoningEffort);
+    options.env = { ...(options.env ?? {}) };
+    if (effortLevel) options.env.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
+    else delete options.env.CLAUDE_CODE_EFFORT_LEVEL;
     if (this.model) options.model = this.model;
     if (options.settingSources === undefined) options.settingSources = ["user", "project"];
     if (schemaForProvider) {
@@ -602,6 +607,12 @@ function mapReasoningEffortToClaudeMaxThinkingTokens(effort: ReasoningEffort): n
   if (effort === "medium") return 8_000;
   if (effort === "high") return 12_000;
   return 16_000;
+}
+
+function mapReasoningEffortToClaudeEffortLevel(effort: ReasoningEffort): "low" | "medium" | "high" | undefined {
+  if (effort === "none") return undefined;
+  if (effort === "xhigh") return "high";
+  return effort;
 }
 
 function mapUnifiedAccessToClaude(

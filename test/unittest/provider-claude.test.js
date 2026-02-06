@@ -529,14 +529,14 @@ test("Claude adapter allow-lists Unix sockets under workspace roots when auto=me
   assert.equal(done.status, "success");
 });
 
-test("Claude adapter maps unified SessionConfig.reasoningEffort into options.maxThinkingTokens", async (t) => {
+test("Claude adapter maps unified SessionConfig.reasoningEffort into Claude thinking config", async (t) => {
   const cases = [
-    { name: "default", reasoningEffort: undefined, expected: 8_000 },
-    { name: "none", reasoningEffort: "none", expected: 0 },
-    { name: "low", reasoningEffort: "low", expected: 4_000 },
-    { name: "medium", reasoningEffort: "medium", expected: 8_000 },
-    { name: "high", reasoningEffort: "high", expected: 12_000 },
-    { name: "xhigh", reasoningEffort: "xhigh", expected: 16_000 },
+    { name: "default", reasoningEffort: undefined, expectedTokens: 8_000, expectedEffortLevel: "medium" },
+    { name: "none", reasoningEffort: "none", expectedTokens: 0, expectedEffortLevel: undefined },
+    { name: "low", reasoningEffort: "low", expectedTokens: 4_000, expectedEffortLevel: "low" },
+    { name: "medium", reasoningEffort: "medium", expectedTokens: 8_000, expectedEffortLevel: "medium" },
+    { name: "high", reasoningEffort: "high", expectedTokens: 12_000, expectedEffortLevel: "high" },
+    { name: "xhigh", reasoningEffort: "xhigh", expectedTokens: 16_000, expectedEffortLevel: "high" },
   ];
 
   for (const c of cases) {
@@ -544,7 +544,8 @@ test("Claude adapter maps unified SessionConfig.reasoningEffort into options.max
       const runtime = new ClaudeRuntime({
         query: ({ options }) =>
           (async function* () {
-            assert.equal(options.maxThinkingTokens, c.expected);
+            assert.equal(options.maxThinkingTokens, c.expectedTokens);
+            assert.equal(options.env?.CLAUDE_CODE_EFFORT_LEVEL, c.expectedEffortLevel);
             yield {
               type: "result",
               subtype: "success",
@@ -566,6 +567,110 @@ test("Claude adapter maps unified SessionConfig.reasoningEffort into options.max
       assert.equal(done.status, "success");
     });
   }
+});
+
+test("Claude adapter enforces unified reasoning over provider maxThinkingTokens and env effort overrides", async () => {
+  const runtime = new ClaudeRuntime({
+    defaults: {
+      env: {
+        ...process.env,
+        CLAUDE_CODE_EFFORT_LEVEL: "low",
+      },
+    },
+    query: ({ options }) =>
+      (async function* () {
+        assert.equal(options.maxThinkingTokens, 8_000);
+        assert.equal(options.env?.CLAUDE_CODE_EFFORT_LEVEL, "medium");
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({
+    config: {
+      workspace: { cwd: process.cwd() },
+      reasoningEffort: "medium",
+      provider: {
+        maxThinkingTokens: 1,
+        env: {
+          CLAUDE_CODE_EFFORT_LEVEL: "none",
+        },
+      },
+    },
+  });
+
+  const run = await session.run({
+    input: { parts: [{ type: "text", text: "hello" }] },
+    config: {
+      provider: {
+        maxThinkingTokens: 2,
+        env: {
+          CLAUDE_CODE_EFFORT_LEVEL: "high",
+        },
+      },
+    },
+  });
+
+  const done = await run.result;
+  assert.equal(done.status, "success");
+});
+
+test("Claude adapter clears CLAUDE_CODE_EFFORT_LEVEL when unified reasoningEffort is none", async () => {
+  const runtime = new ClaudeRuntime({
+    defaults: {
+      env: {
+        ...process.env,
+        CLAUDE_CODE_EFFORT_LEVEL: "high",
+      },
+    },
+    query: ({ options }) =>
+      (async function* () {
+        assert.equal(options.maxThinkingTokens, 0);
+        assert.equal(options.env?.CLAUDE_CODE_EFFORT_LEVEL, undefined);
+        yield {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          structured_output: null,
+          total_cost_usd: 0,
+          duration_ms: 1,
+          usage: {},
+        };
+      })(),
+  });
+
+  const session = await runtime.openSession({
+    config: {
+      workspace: { cwd: process.cwd() },
+      reasoningEffort: "none",
+      provider: {
+        env: {
+          CLAUDE_CODE_EFFORT_LEVEL: "low",
+        },
+      },
+    },
+  });
+
+  const run = await session.run({
+    input: { parts: [{ type: "text", text: "hello" }] },
+    config: {
+      provider: {
+        env: {
+          CLAUDE_CODE_EFFORT_LEVEL: "medium",
+        },
+      },
+    },
+  });
+
+  const done = await run.result;
+  assert.equal(done.status, "success");
 });
 
 test("Claude adapter denies out-of-workspace writes when auto=medium (but allows reads elsewhere)", async () => {
@@ -739,6 +844,7 @@ test("Claude resumeSession restores unified session config from snapshot metadat
         assert.deepEqual(options.additionalDirectories, ["/extra"]);
         assert.equal(options.model, "gpt-5");
         assert.equal(options.maxThinkingTokens, 12_000);
+        assert.equal(options.env?.CLAUDE_CODE_EFFORT_LEVEL, "high");
 
         if (call === 1) {
           assert.equal(options.resume, undefined);

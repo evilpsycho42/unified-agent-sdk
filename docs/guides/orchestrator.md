@@ -64,4 +64,6 @@ Notes:
 - `RunHandle.events` is a single-consumer stream; consume it promptly for streaming output/telemetry.
 - A `UnifiedSession` supports one active `run()` at a time; concurrent calls throw `SessionBusyError` (queue/schedule in your orchestrator).
 - `SessionConfig.access` is mapped into provider-native enforcement and does not behave identically across providers (see [Access](../specs/permission.md)).
+- `SessionConfig.reasoningEffort` is provider-normalized: Claude maps to effort-level controls plus compatibility thinking-token settings, and model behavior can vary across Claude generations.
+- Codex caveat: in some environments, `reasoningEffort: "none"` (mapped to `modelReasoningEffort="minimal"`) can be rejected when web search is enabled; prefer `"low"`+ if that occurs.
 - If your orchestrator needs HTTP via shell tools (for example `curl` to `localhost`), use `access.auto="medium"` (portable); `auto="low"` is intentionally conservative.

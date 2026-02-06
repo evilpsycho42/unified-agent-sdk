@@ -6,9 +6,9 @@ This repo’s Claude adapter (`@unified-agent-sdk/provider-claude`) wraps `@anth
 
 | Concern | Where to configure it |
 |---|---|
-| Runtime defaults (system prompt, env, hooks, etc.) | `new ClaudeRuntime({ defaults: ClaudeOptions })` (minus unified-owned keys: `cwd`, `additionalDirectories`, `resume`, `abortController`, `model`) |
+| Runtime defaults (system prompt, env, hooks, etc.) | `new ClaudeRuntime({ defaults: ClaudeOptions })` (minus unified-owned keys: `cwd`, `additionalDirectories`, `resume`, `abortController`, `model`, `maxThinkingTokens`) |
 | Session model | `openSession({ config: { model } })` |
-| Per-session options (minus unified-owned keys: `cwd`, `additionalDirectories`, `resume`, `abortController`, `model`) | `openSession({ config: { provider: ClaudeSessionConfig } })` |
+| Per-session options (minus unified-owned keys: `cwd`, `additionalDirectories`, `resume`, `abortController`, `model`, `maxThinkingTokens`) | `openSession({ config: { provider: ClaudeSessionConfig } })` |
 | Workspace scope | `openSession({ config: { workspace } })` |
 | Unified access | `openSession({ config: { access } })` |
 | Per-run overrides | `run({ config: { provider: Partial<ClaudeSessionConfig> } })` (best-effort merge) |
@@ -104,7 +104,13 @@ Notable Claude-specific details:
 
 #### Thinking / “think mode”
 
-In `@anthropic-ai/claude-agent-sdk`, “think mode” (aka thinking) is controlled by the thinking-token budget (`maxThinkingTokens`). In this unified SDK, it is configured via the unified `reasoningEffort` preset.
+In this unified SDK, Claude thinking is configured via the unified `reasoningEffort` preset.
+
+For Claude, the adapter maps `reasoningEffort` into:
+- `CLAUDE_CODE_EFFORT_LEVEL` (primary effort control)
+- `maxThinkingTokens` (compatibility mapping)
+
+This keeps reasoning unified-owned and backward-compatible across Claude model generations.
 
 In this unified SDK, you can set it at:
 
@@ -114,16 +120,21 @@ import { createRuntime } from "@unified-agent-sdk/runtime";
 // 1) Runtime defaults (applies to every session unless overridden)
 const runtime = createRuntime({
   provider: "@anthropic-ai/claude-agent-sdk",
-  defaultOpts: { reasoningEffort: "none" }, // maps to maxThinkingTokens=0 (disable thinking)
+  defaultOpts: { reasoningEffort: "none" }, // unsets effort level and sets maxThinkingTokens=0
 });
 
 // 2) Session-level override
 await runtime.openSession({
-  config: { reasoningEffort: "high" }, // maps to maxThinkingTokens=12000
+  config: { reasoningEffort: "high" }, // maps to effort="high" and maxThinkingTokens=12000
 });
 ```
 
 Mapping details are documented in [Configuration](../guides/config.md) under “Unified reasoning config”.
+
+Notes:
+- On newer Claude models, effort controls are primary and manual thinking-token budgets can be model-dependent.
+- Claude effort levels are `low|medium|high`; this SDK leaves `CLAUDE_CODE_EFFORT_LEVEL` unset for unified `reasoningEffort: "none"`.
+- `reasoningEffort: "xhigh"` maps to Claude effort `"high"` and compatibility `maxThinkingTokens=16000`.
 
 Note: If you are using the Anthropic **Messages API** directly (not the Claude Agent SDK / Claude Code), “extended thinking” is configured via the `thinking` request parameter rather than `maxThinkingTokens`.
 

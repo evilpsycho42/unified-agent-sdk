@@ -58,7 +58,7 @@ Notes:
 
 ## Unified reasoning config (portable)
 
-`SessionConfig.reasoningEffort` provides a small, provider-agnostic control surface for “how much reasoning / thinking budget” the model should use.
+`SessionConfig.reasoningEffort` provides a small, provider-agnostic control surface for “how much reasoning effort” the model should use.
 
 Supported values: `none`, `low`, `medium`, `high`, `xhigh`.
 
@@ -68,11 +68,17 @@ Provider mapping:
 
 | Unified | Claude (`@anthropic-ai/claude-agent-sdk`) | Codex (`@openai/codex-sdk`) |
 |---|---|---|
-| `none` | `maxThinkingTokens = 0` | `modelReasoningEffort = "minimal"` |
-| `low` | `maxThinkingTokens = 4000` | `modelReasoningEffort = "low"` |
-| `medium` | `maxThinkingTokens = 8000` | `modelReasoningEffort = "medium"` |
-| `high` | `maxThinkingTokens = 12000` | `modelReasoningEffort = "high"` |
-| `xhigh` | `maxThinkingTokens = 16000` | `modelReasoningEffort = "xhigh"` |
+| `none` | unset `CLAUDE_CODE_EFFORT_LEVEL` + compatibility `maxThinkingTokens=0` | `modelReasoningEffort = "minimal"` |
+| `low` | `CLAUDE_CODE_EFFORT_LEVEL="low"` + compatibility `maxThinkingTokens=4000` | `modelReasoningEffort = "low"` |
+| `medium` | `CLAUDE_CODE_EFFORT_LEVEL="medium"` + compatibility `maxThinkingTokens=8000` | `modelReasoningEffort = "medium"` |
+| `high` | `CLAUDE_CODE_EFFORT_LEVEL="high"` + compatibility `maxThinkingTokens=12000` | `modelReasoningEffort = "high"` |
+| `xhigh` | `CLAUDE_CODE_EFFORT_LEVEL="high"` + compatibility `maxThinkingTokens=16000` | `modelReasoningEffort = "xhigh"` |
+
+Notes:
+- On newer Claude models, effort controls are primary and manual thinking-token budgets can be model-dependent.
+- Claude effort levels are `low|medium|high`; this SDK does not set `CLAUDE_CODE_EFFORT_LEVEL` for unified `none`.
+- This SDK sets both for Claude so `SessionConfig.reasoningEffort` remains unified-owned and backward-compatible.
+- Codex caveat: this SDK’s unified `access.auto` presets always enable Codex web search. Some Codex backends reject `modelReasoningEffort="minimal"` when `web_search` is enabled, so `reasoningEffort="none"` can fail with `invalid_request_error` in those environments. If you hit this, use `reasoningEffort="low"` or higher.
 
 ## How layers compose (what gets applied where)
 
@@ -80,7 +86,7 @@ Provider mapping:
 |---|---|---|---|
 | Runtime defaults | *(provider-specific)* | `ClaudeRuntimeConfig.defaults` applied to every `query()` | `CodexRuntimeConfig.defaults` applied to every thread |
 | Session access | `SessionConfig.access` | maps to Claude permission mode + sandbox options | maps to `ThreadOptions` (sandbox + approval) |
-| Session reasoning | `SessionConfig.reasoningEffort` | sets `Options.maxThinkingTokens` | sets `ThreadOptions.modelReasoningEffort` |
+| Session reasoning | `SessionConfig.reasoningEffort` | sets `env.CLAUDE_CODE_EFFORT_LEVEL` and compatibility `Options.maxThinkingTokens` | sets `ThreadOptions.modelReasoningEffort` |
 | Session provider config | `SessionConfig.provider` | merged into Claude `Options` | merged into `ThreadOptions` |
 | Session workspace | `SessionConfig.workspace` | sets `cwd` + `additionalDirectories` | sets `workingDirectory` + `additionalDirectories` *(only if workspace is provided)* |
 | Session model | `SessionConfig.model` | sets `Options.model` | sets `ThreadOptions.model` |
